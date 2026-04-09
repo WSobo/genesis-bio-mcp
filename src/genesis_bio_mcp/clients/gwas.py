@@ -29,17 +29,32 @@ class GwasClient:
     ) -> Optional[GwasEvidence]:
         """Return GWAS Catalog hits for a gene–trait pair."""
         symbol = gene_symbol.strip().upper()
-        associations = await self._fetch_by_gene_symbol(symbol)
 
-        if not associations and ncbi_gene_id:
+        # Primary: gene-ID path returns fully-embedded study + EFO traits
+        associations: list[GwasHit] = []
+        if ncbi_gene_id:
             associations = await self._fetch_by_gene_id(ncbi_gene_id)
+
+        # Fallback: SNP path (study links need a follow-up request)
+        if not associations:
+            associations = await self._fetch_by_gene_symbol(symbol)
 
         if not associations:
             return None
 
+        # Deduplicate: same association can appear multiple times (multiple SNPs → same locus)
+        seen: set[tuple] = set()
+        unique: list[GwasHit] = []
+        for h in associations:
+            key = (h.risk_allele, h.study_accession, h.p_value)
+            if key not in seen:
+                seen.add(key)
+                unique.append(h)
+        associations = unique
+
         filtered = _filter_by_trait(associations, trait)
         if not filtered:
-            # Return all hits if trait filter yields nothing (gene may have different trait labels)
+            # Return all hits if trait filter yields nothing
             filtered = associations
 
         # Remove zero p-value artifacts and sort
@@ -68,7 +83,7 @@ class GwasClient:
         return await self._fetch_associations(url, params)
 
     async def _fetch_associations_from_snps(self, url: str, params: dict) -> list[GwasHit]:
-        """Fetch SNPs and then resolve to associations."""
+        """Fetch SNPs, follow their association links, and resolve missing study data."""
         try:
             resp = await self._client.get(url, params=params, timeout=30.0)
             if resp.status_code in (404, 400):
@@ -77,8 +92,8 @@ class GwasClient:
             body = resp.json()
             snps = body.get("_embedded", {}).get("singleNucleotidePolymorphisms", [])
 
-            hits: list[GwasHit] = []
-            for snp in snps[:50]:  # Limit to avoid too many follow-up requests
+            raw_assocs: list[dict] = []
+            for snp in snps[:30]:
                 assoc_href = snp.get("_links", {}).get("associations", {}).get("href")
                 if not assoc_href:
                     continue
@@ -87,15 +102,47 @@ class GwasClient:
                     ar.raise_for_status()
                     ab = ar.json()
                     for assoc in ab.get("_embedded", {}).get("associations", [])[:3]:
-                        hit = _parse_association(assoc)
-                        if hit:
-                            hits.append(hit)
+                        raw_assocs.append(assoc)
                 except Exception:
                     continue
-            return hits
+
+            # Resolve study data for associations that don't embed it
+            await self._resolve_study_data(raw_assocs)
+
+            hits = [_parse_association(a) for a in raw_assocs]
+            return [h for h in hits if h is not None]
         except Exception as exc:
             logger.warning("GWAS Catalog SNP fetch failed: %s", exc)
             return []
+
+    async def _resolve_study_data(self, assocs: list[dict]) -> None:
+        """Follow study sub-resource links for associations missing embedded study data.
+
+        GWAS HAL associations from the SNP path don't embed the study object; the link
+        is ``associations/{id}/study`` (not ``studies/GCST...``). We batch-fetch unique
+        study URLs and inject the result back into the raw assoc dicts so _parse_association
+        can extract studyAccession and diseaseTrait.
+        """
+        study_cache: dict[str, dict] = {}
+        for assoc in assocs:
+            if assoc.get("study"):
+                continue  # already embedded
+            study_link = assoc.get("_links", {}).get("study", {}).get("href", "")
+            if not study_link or study_link in study_cache:
+                continue
+            try:
+                sr = await self._client.get(study_link, timeout=10.0)
+                sr.raise_for_status()
+                study_cache[study_link] = sr.json()
+            except Exception:
+                study_cache[study_link] = {}
+
+        for assoc in assocs:
+            if assoc.get("study"):
+                continue
+            study_link = assoc.get("_links", {}).get("study", {}).get("href", "")
+            if study_link and study_link in study_cache:
+                assoc["study"] = study_cache[study_link]
 
     async def _fetch_associations(self, url: str, params: dict) -> list[GwasHit]:
         try:
@@ -122,7 +169,7 @@ def _parse_association(assoc: dict) -> Optional[GwasHit]:
         except (TypeError, ValueError):
             return None
 
-        # Risk allele
+        # Risk allele and mapped gene
         loci = assoc.get("loci", [])
         risk_allele = ""
         mapped_gene = ""
@@ -130,34 +177,42 @@ def _parse_association(assoc: dict) -> Optional[GwasHit]:
             alleles = loci[0].get("strongestRiskAlleles", [])
             if alleles:
                 risk_allele = alleles[0].get("riskAlleleName", "")
-            # Mapped genes
             genes = loci[0].get("authorReportedGenes", []) or loci[0].get("entrezMappedGenes", [])
             if genes:
                 mapped_gene = genes[0].get("geneName", "")
 
-        # EFO traits
+        # EFO traits — present in gene-ID-path responses; absent in SNP-path responses
+        # (SNP-path study objects embed diseaseTrait instead)
         efo_traits = assoc.get("efoTraits", [])
-        trait = efo_traits[0].get("trait", "") if efo_traits else assoc.get("traitName", "")
+        if efo_traits:
+            trait = efo_traits[0].get("trait", "")
+        else:
+            # Fall back to study.diseaseTrait.trait (populated after _resolve_study_data)
+            trait = (
+                assoc.get("study", {}).get("diseaseTrait", {}).get("trait", "")
+                or assoc.get("traitName", "")
+            )
 
-        # Study info
-        study_link = assoc.get("_links", {}).get("study", {}).get("href", "")
-        study_accession = ""
-        pubmed_id = None
-        sample_size = None
-        population = None
-
-        # Study may be embedded
+        # Study info — may be embedded directly or injected by _resolve_study_data
         study = assoc.get("study", {})
-        if study:
-            study_accession = study.get("studyAccession", "")
-            pubmed_id = study.get("pubmedId")
-            initial_sample = study.get("initialSampleSize", "")
-            population = initial_sample[:100] if initial_sample else None
+        study_accession = study.get("studyAccession", "")
+        pubmed_id = study.get("pubmedId")
+        initial_sample = study.get("initialSampleSize", "")
+        population = initial_sample[:100] if initial_sample else None
+        sample_size = None
+
+        # Final fallback: extract GCST from study link if link points directly to studies/GCST*
+        if not study_accession:
+            study_link = assoc.get("_links", {}).get("study", {}).get("href", "")
+            parts = study_link.rstrip("/").split("/")
+            candidate = parts[-1] if parts else ""
+            if candidate.upper().startswith("GCST"):
+                study_accession = candidate
 
         beta = assoc.get("betaNum") or assoc.get("orPerCopyNum")
 
         return GwasHit(
-            study_accession=study_accession or study_link.split("/")[-1],
+            study_accession=study_accession,
             trait=trait,
             mapped_gene=mapped_gene,
             risk_allele=risk_allele,

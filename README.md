@@ -90,7 +90,7 @@ src/genesis_bio_mcp/
 ├── clients/
 │   ├── uniprot.py             # UniProt REST: gene_exact query, Swiss-Prot parsing
 │   ├── open_targets.py        # Open Targets GraphQL: 3-step resolution (gene→Ensembl, disease→EFO, assoc)
-│   ├── depmap.py              # DepMap portal API with graceful fallback
+│   ├── depmap.py              # Cancer dependency via Open Targets somatic mutation scores (DepMap has no public REST API)
 │   ├── gwas.py                # GWAS Catalog HAL/REST, Unicode normalization, trait filtering
 │   └── pubchem.py             # PubChem REST, asyncio.Semaphore rate limiting, tenacity retries
 └── tools/
@@ -132,9 +132,9 @@ python -m genesis_bio_mcp.server
 |----------|----------|------------|-------|
 | UniProt | REST | Generous | Filter `organism_id:9606` + `reviewed:true` for human Swiss-Prot |
 | Open Targets | GraphQL | Generous (slow ~2s) | Requires Ensembl ID and EFO ID — resolved automatically |
-| DepMap | Undocumented REST | N/A | No stable public API; graceful fallback with portal link |
+| DepMap | — | — | No stable public REST API exists. `get_cancer_dependency` uses Open Targets somatic mutation scores as a proxy for CRISPR dependency, mapping cancer-associated somatic mutation evidence to estimated CERES scores. Scores are labeled clearly as proxy data. |
 | GWAS Catalog | REST/HAL | Moderate | HAL JSON; Unicode normalization required for trait matching |
-| PubChem | REST | 5 req/sec | Returns HTTP 503 on rate limit; handled with tenacity + Semaphore |
+| PubChem | REST | 5 req/sec | Returns HTTP 503 on rate limit; handled with tenacity + Semaphore. Compound coverage is conservative by design: the client uses NCBI Entrez to find assays with formal IC50 measurements and Active/Inactive outcomes, skipping the ~1400 BRAF assays that use continuous binding formats with no Active designation. This yields fewer but higher-confidence hits than raw AID scraping. |
 | NCBI E-utils | REST | 3 req/sec | Requires `email` parameter; set `NCBI_EMAIL` env var |
 
 ## License

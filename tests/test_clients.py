@@ -177,11 +177,8 @@ async def test_depmap_returns_none_when_gene_not_found(http_client):
 
 @respx.mock
 async def test_gwas_returns_evidence(http_client):
-    # Mock SNP search returning empty (simplest path), then association direct search
-    respx.get(url__regex=r"singleNucleotidePolymorphisms").mock(
-        return_value=httpx.Response(200, json={"_embedded": {"singleNucleotidePolymorphisms": []}})
-    )
-    # Also mock the gene ID–based fallback
+    # When ncbi_gene_id is provided, findByEntrezMappedGeneId is tried first (primary path).
+    # Its response embeds study + efoTraits, so study_accession and trait are populated.
     respx.get(url__regex=r"findByEntrezMappedGeneId").mock(
         return_value=httpx.Response(200, json=MOCK_GWAS_ASSOCIATION_RESPONSE)
     )
@@ -193,6 +190,7 @@ async def test_gwas_returns_evidence(http_client):
     assert result.total_associations >= 1
     assert result.associations[0].p_value < 1e-10
     assert result.associations[0].study_accession == "GCST001234"
+    assert result.associations[0].trait == "melanoma"
 
 
 @respx.mock
