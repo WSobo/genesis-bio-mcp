@@ -65,21 +65,22 @@ Ask Claude:
 ```
 prioritize_target("BRAF", "melanoma")
 
-→ priority_score: 8.4 / 10
+→ priority_score: 7.97 / 10
 → priority_tier: High
-→ evidence_summary: "BRAF shows strong Open Targets association with melanoma (score: 0.89,
-  n=312 evidence items). DepMap CRISPR data show dependency in 61% of cancer lines, highest
-  in Skin, Thyroid, Colon. GWAS Catalog links 5 variants near BRAF to melanoma-related traits
-  (strongest p=1.00e-15). PubChem reports 312 active compounds against BRAF, indicating strong
-  druggability."
+→ evidence_summary: "BRAF shows strong Open Targets association with melanoma (score: 0.82,
+  n=4 evidence datatypes). DepMap cancer dependency data (via Open Targets somatic mutation
+  proxy) show high dependency in cancer lines. PubChem reports active BRAF inhibitors including
+  vemurafenib and dabrafenib."
 
-→ disease_association.overall_score: 0.89
-→ disease_association.somatic_mutation_score: 0.95
+→ disease_association.overall_score: 0.82
+→ disease_association.somatic_mutation_score: 0.95   # BRAF V600E in ~50% of melanomas
 → disease_association.known_drug_score: 0.88
 → cancer_dependency.fraction_dependent_lines: 0.61
-→ compounds.total_active_compounds: 312
-→ compounds[0]: Dabrafenib, IC50 = 6.0 nM
+→ compounds[0]: vemurafenib (IC50 active), dabrafenib (IC50 active)
+→ data_gaps: ["gwas"]   # expected — BRAF's cancer relevance is somatic, not germline GWAS
 ```
+
+> **Note on GWAS for BRAF/melanoma**: BRAF V600E is a somatic driver mutation (~50% of melanomas), not a germline susceptibility variant. GWAS Catalog correctly returns no melanoma-trait hits near BRAF. The server reports this honestly as a `data_gap` rather than returning off-topic hits (height, lung function, etc.) that happen to map near the BRAF locus. For germline-driven targets like *FTO* (obesity) or *PCSK9* (cardiovascular disease), GWAS evidence will be strongly populated.
 
 ## Architecture
 

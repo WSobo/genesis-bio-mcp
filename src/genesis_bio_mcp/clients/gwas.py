@@ -54,8 +54,8 @@ class GwasClient:
 
         filtered = _filter_by_trait(associations, trait)
         if not filtered:
-            # Return all hits if trait filter yields nothing
-            filtered = associations
+            logger.info("GWAS: no '%s' trait hits for %s — returning None (data gap)", trait, symbol)
+            return None
 
         # Remove zero p-value artifacts and sort
         filtered = [a for a in filtered if a.p_value and a.p_value > 0]
