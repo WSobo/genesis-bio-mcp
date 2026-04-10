@@ -1,9 +1,9 @@
 # Target Assessment: PTGS2 | inflammation
 
-**Priority Score: 4.8/10 — MEDIUM PRIORITY**
+**Priority Score: 6.3/10 — MEDIUM PRIORITY**
 
 ## Evidence Summary
-PTGS2 shows strong Open Targets association with inflammation (score: 0.60, n=2 evidence items). DepMap CRISPR data show dependency in 0% of cancer lines. ChEMBL reports 88 compounds with potency data against PTGS2; best IC50 ≈ 0.1 nM (clinical-grade, pChEMBL=10.1).
+PTGS2 shows strong Open Targets association with inflammation (score: 0.60, n=2 evidence items). Open Targets reports strong known-drug evidence for PTGS2 (score: 0.98), suggesting existing approved or clinical-stage therapeutics — likely biologics if small-molecule data is sparse. DepMap CRISPR data show dependency in 0% of cancer lines. ChEMBL reports 88 compounds with potency data against PTGS2; best IC50 ≈ 0.1 nM (clinical-grade, pChEMBL=10.1).
 
 ## Scoring Breakdown
 | Source | Contribution | Max |

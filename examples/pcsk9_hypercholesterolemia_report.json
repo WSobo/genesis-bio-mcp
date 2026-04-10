@@ -137,7 +137,7 @@
     "overall_score": 0.826654499695062,
     "genetic_association_score": 0.9425041566412744,
     "somatic_mutation_score": null,
-    "known_drug_score": null,
+    "known_drug_score": 0.9765760382342404,
     "literature_mining_score": 0.7131003477545801,
     "evidence_count": 4,
     "evidence_breakdown": [
@@ -545,9 +545,9 @@
       }
     ]
   },
-  "priority_score": 7.58,
+  "priority_score": 9.05,
   "priority_tier": "High",
-  "evidence_summary": "PCSK9 shows strong Open Targets association with hypercholesterolemia (score: 0.83, n=4 evidence items). DepMap CRISPR data show dependency in 5% of cancer lines. GWAS Catalog links 20 variants near PCSK9 to 'hypercholesterolemia'-related traits (strongest p=1.00e-84). ChEMBL reports 76 compounds with potency data against PCSK9; best IC50 \u2248 0.2 nM (clinical-grade, pChEMBL=9.8).",
+  "evidence_summary": "PCSK9 shows strong Open Targets association with hypercholesterolemia (score: 0.83, n=4 evidence items). Open Targets reports strong known-drug evidence for PCSK9 (score: 0.98), suggesting existing approved or clinical-stage therapeutics \u2014 likely biologics if small-molecule data is sparse. DepMap CRISPR data show dependency in 5% of cancer lines. GWAS Catalog links 20 variants near PCSK9 to 'hypercholesterolemia'-related traits (strongest p=1.00e-84). ChEMBL reports 76 compounds with potency data against PCSK9; best IC50 \u2248 0.2 nM (clinical-grade, pChEMBL=9.8).",
   "data_gaps": [
     "pubchem"
   ],

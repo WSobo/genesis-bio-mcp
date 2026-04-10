@@ -1,9 +1,9 @@
 # Target Assessment: EGFR | non-small cell lung carcinoma
 
-**Priority Score: 5.9/10 — MEDIUM PRIORITY**
+**Priority Score: 7.4/10 — HIGH PRIORITY**
 
 ## Evidence Summary
-EGFR shows strong Open Targets association with non-small cell lung carcinoma (score: 0.85, n=6 evidence items). DepMap CRISPR data show dependency in 18% of cancer lines, highest in cancer or benign tumor. ChEMBL reports 67 compounds with potency data against EGFR; best IC50 ≈ 0.4 nM (clinical-grade, pChEMBL=9.3).
+EGFR shows strong Open Targets association with non-small cell lung carcinoma (score: 0.85, n=6 evidence items). Open Targets reports strong known-drug evidence for EGFR (score: 1.00), suggesting existing approved or clinical-stage therapeutics — likely biologics if small-molecule data is sparse. DepMap CRISPR data show dependency in 18% of cancer lines, highest in cancer or benign tumor. ChEMBL reports 67 compounds with potency data against EGFR; best IC50 ≈ 0.4 nM (clinical-grade, pChEMBL=9.3).
 
 ## Scoring Breakdown
 | Source | Contribution | Max |

@@ -1,9 +1,9 @@
 # Target Assessment: BRAF | melanoma
 
-**Priority Score: 5.7/10 — MEDIUM PRIORITY**
+**Priority Score: 7.1/10 — HIGH PRIORITY**
 
 ## Evidence Summary
-BRAF shows strong Open Targets association with melanoma (score: 0.82, n=5 evidence items). DepMap CRISPR data show dependency in 9% of cancer lines, highest in cancer or benign tumor. ChEMBL reports 68 compounds with potency data against BRAF; best IC50 ≈ 0.3 nM (clinical-grade, pChEMBL=9.5).
+BRAF shows strong Open Targets association with melanoma (score: 0.82, n=5 evidence items). Open Targets reports strong known-drug evidence for BRAF (score: 0.98), suggesting existing approved or clinical-stage therapeutics — likely biologics if small-molecule data is sparse. DepMap CRISPR data show dependency in 9% of cancer lines, highest in cancer or benign tumor. ChEMBL reports 68 compounds with potency data against BRAF; best IC50 ≈ 0.3 nM (clinical-grade, pChEMBL=9.5).
 
 ## Scoring Breakdown
 | Source | Contribution | Max |

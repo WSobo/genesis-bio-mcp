@@ -1,17 +1,17 @@
-# Target Assessment: P53 | lung cancer
+# Target Assessment: TP53 | lung cancer
 
-**Priority Score: 5.1/10 — MEDIUM PRIORITY**
+**Priority Score: 3.4/10 — LOW PRIORITY**
 
 ## Evidence Summary
-P53 shows modest Open Targets association with lung cancer (score: 0.41, n=5 evidence items). DepMap CRISPR data show dependency in 100% of cancer lines, highest in cancer or benign tumor. ChEMBL reports 45 compounds with potency data against P53; best IC50 ≈ 4.0 nM (lead-quality, pChEMBL=8.4).
+TP53 shows modest Open Targets association with lung cancer (score: 0.41, n=5 evidence items). DepMap CRISPR data show dependency in 0% of cancer lines, highest in cancer or benign tumor. ChEMBL reports 55 compounds with potency data against TP53; best IC50 ≈ 457.1 nM (hit-quality, pChEMBL=6.3).
 
 ## Scoring Breakdown
 | Source | Contribution | Max |
 |---|---|---|
 | Open Targets association | 1.23 | 3.0 |
-| Cancer dependency | 2.0 (100% dependent) | 2.0 |
+| Cancer dependency | 0.01 (0% dependent) | 2.0 |
 | GWAS evidence | 0.0 | 2.0 |
-| Chemical matter | 1.0 (ChEMBL pChEMBL=8.4) | 1.5 |
+| Chemical matter | 0.5 (ChEMBL pChEMBL=6.3) | 1.5 |
 | Protein annotation | 1.50 | 1.5 |
 
 ## Data Sources
@@ -20,9 +20,9 @@ P53 shows modest Open Targets association with lung cancer (score: 0.41, n=5 evi
 - **DepMap:** ✓
 - **GWAS Catalog:** ✗ (no data)
 - **ChEMBL:** ✓
-- **PubChem:** ✓
+- **PubChem:** ✗ (no data)
 
-**Data gaps:** gwas
+**Data gaps:** gwas, pubchem
 
 ---
 _Resolved: TP53 | NCBI Gene: 7157 | UniProt: P04637_

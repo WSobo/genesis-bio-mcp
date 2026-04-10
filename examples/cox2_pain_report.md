@@ -1,15 +1,15 @@
-# Target Assessment: COX2 | pain
+# Target Assessment: PTGS2 | pain
 
-**Priority Score: 4.4/10 — MEDIUM PRIORITY**
+**Priority Score: 6.3/10 — MEDIUM PRIORITY**
 
 ## Evidence Summary
-COX2 shows modest Open Targets association with pain (score: 0.00, n=1 evidence items). DepMap CRISPR data show dependency in 100% of cancer lines, highest in cancer or benign tumor. ChEMBL reports 88 compounds with potency data against COX2; best IC50 ≈ 0.1 nM (clinical-grade, pChEMBL=10.1).
+PTGS2 shows strong Open Targets association with pain (score: 0.61, n=2 evidence items). Open Targets reports strong known-drug evidence for PTGS2 (score: 1.00), suggesting existing approved or clinical-stage therapeutics — likely biologics if small-molecule data is sparse. DepMap CRISPR data show dependency in 0% of cancer lines. ChEMBL reports 88 compounds with potency data against PTGS2; best IC50 ≈ 0.1 nM (clinical-grade, pChEMBL=10.1).
 
 ## Scoring Breakdown
 | Source | Contribution | Max |
 |---|---|---|
-| Open Targets association | 0.01 | 3.0 |
-| Cancer dependency | 2.0 (100% dependent) | 2.0 |
+| Open Targets association | 1.83 | 3.0 |
+| Cancer dependency | 0.0 (0% dependent) | 2.0 |
 | GWAS evidence | 0.0 | 2.0 |
 | Chemical matter | 1.5 (ChEMBL pChEMBL=10.1) | 1.5 |
 | Protein annotation | 1.50 | 1.5 |

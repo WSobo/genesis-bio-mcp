@@ -1,5 +1,5 @@
 {
-  "gene_symbol": "P53",
+  "gene_symbol": "TP53",
   "indication": "lung cancer",
   "resolution": {
     "hgnc_symbol": "TP53",
@@ -170,14 +170,14 @@
     "reviewed": true
   },
   "disease_association": {
-    "gene_symbol": "P53",
+    "gene_symbol": "TP53",
     "disease_name": "lung cancer",
     "disease_efo_id": "MONDO_0008903",
     "ensembl_id": "ENSG00000141510",
     "overall_score": 0.4086511542801537,
     "genetic_association_score": 0.0,
     "somatic_mutation_score": null,
-    "known_drug_score": null,
+    "known_drug_score": 0.07599134970145263,
     "literature_mining_score": 0.9749330355852468,
     "evidence_count": 5,
     "evidence_breakdown": [
@@ -204,9 +204,9 @@
     ]
   },
   "cancer_dependency": {
-    "gene_symbol": "P53",
-    "mean_ceres_score": -1.5939,
-    "fraction_dependent_lines": 1.0,
+    "gene_symbol": "TP53",
+    "mean_ceres_score": -0.006,
+    "fraction_dependent_lines": 0.0041,
     "pan_essential": false,
     "top_dependent_lineages": [
       "cancer or benign tumor"
@@ -273,178 +273,164 @@
         "is_dependent": true
       }
     ],
-    "data_source": "Open Targets Platform v4 \u2014 somatic mutation evidence (proxy; DepMap gene not found in Chronos Combined summary)"
+    "data_source": "DepMap Chronos Combined (5/1208 cell lines dependent) + Open Targets lineage context"
   },
   "gwas_evidence": null,
-  "compounds": {
-    "gene_symbol": "P53",
-    "total_active_compounds": 1,
-    "compounds": [
-      {
-        "cid": 4274,
-        "name": "2-[bis(2-ethoxyethyl)phosphanyl]ethyl-bis(2-ethoxyethyl)phosphane",
-        "molecular_formula": "C18H40O4P2",
-        "molecular_weight": 382.5,
-        "activity_outcome": "Active",
-        "activity_value": null,
-        "activity_type": null,
-        "assay_id": 0
-      }
-    ]
-  },
+  "compounds": null,
   "chembl_compounds": {
-    "gene_symbol": "P53",
-    "target_chembl_id": "CHEMBL4096",
-    "total_active_compounds": 45,
-    "best_pchembl": 8.4,
+    "gene_symbol": "TP53",
+    "target_chembl_id": "CHEMBL2424509",
+    "total_active_compounds": 55,
+    "best_pchembl": 6.34,
     "compounds": [
       {
-        "molecule_chembl_id": "CHEMBL4246320",
-        "molecule_name": null,
-        "standard_type": "EC50",
-        "pchembl_value": 8.4,
-        "assay_description": "Induction of p53 transcriptional activity (unknown origin) expressed in HEK293 cells coexpressing TK-driven Rluc after 2"
-      },
-      {
-        "molecule_chembl_id": "CHEMBL4238053",
-        "molecule_name": null,
-        "standard_type": "EC50",
-        "pchembl_value": 8.4,
-        "assay_description": "Induction of p53 transcriptional activity (unknown origin) expressed in HEK293 cells coexpressing TK-driven Rluc after 2"
-      },
-      {
-        "molecule_chembl_id": "CHEMBL4243509",
-        "molecule_name": null,
-        "standard_type": "EC50",
-        "pchembl_value": 8.05,
-        "assay_description": "Induction of p53 transcriptional activity (unknown origin) expressed in HEK293 cells coexpressing TK-driven Rluc after 2"
-      },
-      {
-        "molecule_chembl_id": "CHEMBL4240212",
-        "molecule_name": null,
-        "standard_type": "EC50",
-        "pchembl_value": 7.92,
-        "assay_description": "Induction of p53 transcriptional activity (unknown origin) expressed in HEK293 cells coexpressing TK-driven Rluc after 2"
-      },
-      {
-        "molecule_chembl_id": "CHEMBL4248974",
-        "molecule_name": null,
-        "standard_type": "EC50",
-        "pchembl_value": 7.75,
-        "assay_description": "Activation of p53 in human MCF7 cell lysates assessed as increase in total p53 protein level by Western blot analysis"
-      },
-      {
-        "molecule_chembl_id": "CHEMBL4244338",
-        "molecule_name": null,
-        "standard_type": "EC50",
-        "pchembl_value": 7.19,
-        "assay_description": "Induction of p53 transcriptional activity (unknown origin) expressed in HEK293 cells coexpressing TK-driven Rluc after 2"
-      },
-      {
-        "molecule_chembl_id": "CHEMBL4240141",
-        "molecule_name": null,
-        "standard_type": "EC50",
-        "pchembl_value": 7.13,
-        "assay_description": "Induction of p53 transcriptional activity (unknown origin) expressed in HEK293 cells coexpressing TK-driven Rluc after 2"
-      },
-      {
-        "molecule_chembl_id": "CHEMBL2436173",
-        "molecule_name": null,
-        "standard_type": "EC50",
-        "pchembl_value": 7.1,
-        "assay_description": "Activation of p53 in human HT1080-L cells after 16 hrs by luciferase reporter gene assay"
-      },
-      {
-        "molecule_chembl_id": "CHEMBL4240977",
-        "molecule_name": null,
-        "standard_type": "EC50",
-        "pchembl_value": 6.82,
-        "assay_description": "Induction of p53 transcriptional activity (unknown origin) expressed in HEK293 cells coexpressing TK-driven Rluc after 2"
-      },
-      {
-        "molecule_chembl_id": "CHEMBL4243377",
-        "molecule_name": null,
-        "standard_type": "EC50",
-        "pchembl_value": 6.8,
-        "assay_description": "Induction of p53 transcriptional activity (unknown origin) expressed in HEK293 cells coexpressing TK-driven Rluc after 2"
-      },
-      {
-        "molecule_chembl_id": "CHEMBL2059435",
+        "molecule_chembl_id": "CHEMBL5439383",
         "molecule_name": null,
         "standard_type": "IC50",
-        "pchembl_value": 6.12,
-        "assay_description": "Activity at p53 in human SJSA1 cells assessed as induction of p21 mRNA expression after 7 hrs by qRT-PCR analysis in pre"
+        "pchembl_value": 6.34,
+        "assay_description": "Displacement of Biotin-p53K381acK382me2 from N-terminal his6-tagged 53BP1 (1484 to 1603 residues) (unknown origin) expre"
       },
       {
-        "molecule_chembl_id": "CHEMBL2059300",
+        "molecule_chembl_id": "CHEMBL5403027",
         "molecule_name": null,
         "standard_type": "IC50",
-        "pchembl_value": 6.0,
-        "assay_description": "Activity at p53 in human HCT116 cells expressing wild type p53 assessed as induction of p21 mRNA expression after 7 hrs "
+        "pchembl_value": 6.33,
+        "assay_description": "Displacement of Biotin-p53K381acK382me2 from N-terminal his6-tagged 53BP1 (1484 to 1603 residues) (unknown origin) expre"
       },
       {
-        "molecule_chembl_id": "CHEMBL191334",
-        "molecule_name": "NUTLIN-3",
-        "standard_type": "IC50",
-        "pchembl_value": 5.86,
-        "assay_description": "Induction of p53 in human HCT116 cells coexpressing pp53TA-luc assessed as inhibition of cell proliferation after 8 hrs "
-      },
-      {
-        "molecule_chembl_id": "CHEMBL2177191",
+        "molecule_chembl_id": "CHEMBL5402301",
         "molecule_name": null,
         "standard_type": "IC50",
-        "pchembl_value": 5.82,
-        "assay_description": "Activity at p53 in human SJSA1 cells assessed as induction of p21 mRNA expression after 7 hrs by qRT-PCR analysis in pre"
+        "pchembl_value": 6.07,
+        "assay_description": "Displacement of Biotin-p53K381acK382me2 from N-terminal his6-tagged 53BP1 (1484 to 1603 residues) (unknown origin) expre"
       },
       {
-        "molecule_chembl_id": "CHEMBL3622373",
+        "molecule_chembl_id": "CHEMBL5431269",
         "molecule_name": null,
         "standard_type": "IC50",
-        "pchembl_value": 5.82,
-        "assay_description": "Inhibition of doxorubicin-stimulated p53 (unknown origin) expressed in human RKO cells preincubated for 24 hrs followed "
+        "pchembl_value": 5.89,
+        "assay_description": "Displacement of Biotin-p53K381acK382me2 from N-terminal his6-tagged 53BP1 (1484 to 1603 residues) (unknown origin) expre"
       },
       {
-        "molecule_chembl_id": "CHEMBL2177189",
+        "molecule_chembl_id": "CHEMBL5433157",
         "molecule_name": null,
         "standard_type": "IC50",
-        "pchembl_value": 5.8,
-        "assay_description": "Activity at p53 in human SJSA1 cells assessed as induction of p21 mRNA expression after 7 hrs by qRT-PCR analysis in pre"
+        "pchembl_value": 5.85,
+        "assay_description": "Displacement of Biotin-p53K381acK382me2 from N-terminal his6-tagged 53BP1 (1484 to 1603 residues) (unknown origin) expre"
       },
       {
-        "molecule_chembl_id": "CHEMBL583413",
+        "molecule_chembl_id": "CHEMBL4746871",
         "molecule_name": null,
         "standard_type": "IC50",
-        "pchembl_value": 5.52,
-        "assay_description": "Induction of p53 in human HCT116 cells coexpressing pp53TA-luc assessed as inhibition of cell proliferation after 8 hrs "
+        "pchembl_value": 5.77,
+        "assay_description": "Inhibition of recombinant human N-terminal His6-tagged 53BP1 TTD (1484 to1603 residues) expressed in Escherichia coli BL"
       },
       {
-        "molecule_chembl_id": "CHEMBL4438921",
+        "molecule_chembl_id": "CHEMBL5415556",
         "molecule_name": null,
         "standard_type": "IC50",
-        "pchembl_value": 5.52,
-        "assay_description": "Activation of p53 in human SMMC7721 cells"
+        "pchembl_value": 5.72,
+        "assay_description": "Displacement of Biotin-p53K381acK382me2 from N-terminal his6-tagged 53BP1 (1484 to 1603 residues) (unknown origin) expre"
       },
       {
-        "molecule_chembl_id": "CHEMBL2177188",
+        "molecule_chembl_id": "CHEMBL5423332",
         "molecule_name": null,
         "standard_type": "IC50",
-        "pchembl_value": 5.51,
-        "assay_description": "Activity at p53 in human SJSA1 cells assessed as induction of p21 mRNA expression after 7 hrs by qRT-PCR analysis in pre"
+        "pchembl_value": 5.66,
+        "assay_description": "Displacement of Biotin-p53K381acK382me2 from N-terminal his6-tagged 53BP1 (1484 to 1603 residues) (unknown origin) expre"
       },
       {
-        "molecule_chembl_id": "CHEMBL4162051",
+        "molecule_chembl_id": "CHEMBL5440895",
         "molecule_name": null,
-        "standard_type": "Kd",
-        "pchembl_value": 5.4,
-        "assay_description": "Binding affinity to N-terminal His6-tagged p53 DNA binding domain Y220C mutant (94 to 312 residues) (unknown origin) exp"
+        "standard_type": "IC50",
+        "pchembl_value": 5.47,
+        "assay_description": "Displacement of Biotin-p53K381acK382me2 from N-terminal his6-tagged 53BP1 (1484 to 1603 residues) (unknown origin) expre"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL2426376",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 5.46,
+        "assay_description": "Inhibition of 53BP1 (unknown origin) after 30 mins by AlphaScreen assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5421180",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 5.42,
+        "assay_description": "Displacement of Biotin-p53K381acK382me2 from N-terminal his6-tagged 53BP1 (1484 to 1603 residues) (unknown origin) expre"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5430714",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 5.39,
+        "assay_description": "Displacement of Biotin-p53K381acK382me2 from N-terminal his6-tagged 53BP1 (1484 to 1603 residues) (unknown origin) expre"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4740162",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 5.38,
+        "assay_description": "Inhibition of recombinant human N-terminal His6-tagged 53BP1 TTD (1484 to1603 residues) expressed in Escherichia coli BL"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL2426479",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 5.33,
+        "assay_description": "Inhibition of 53BP1 (unknown origin) after 30 mins by AlphaScreen assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5440393",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 5.3,
+        "assay_description": "Displacement of Biotin-p53K381acK382me2 from N-terminal his6-tagged 53BP1 (1484 to 1603 residues) (unknown origin) expre"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5397384",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 5.25,
+        "assay_description": "Displacement of Biotin-p53K381acK382me2 from N-terminal his6-tagged 53BP1 (1484 to 1603 residues) (unknown origin) expre"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5400477",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 5.24,
+        "assay_description": "Displacement of Biotin-p53K381acK382me2 from N-terminal his6-tagged 53BP1 (1484 to 1603 residues) (unknown origin) expre"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5397306",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 5.23,
+        "assay_description": "Displacement of Biotin-p53K381acK382me2 from N-terminal his6-tagged 53BP1 (1484 to 1603 residues) (unknown origin) expre"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5395836",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 5.18,
+        "assay_description": "Displacement of Biotin-p53K381acK382me2 from N-terminal his6-tagged 53BP1 (1484 to 1603 residues) (unknown origin) expre"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5428966",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 5.17,
+        "assay_description": "Displacement of Biotin-p53K381acK382me2 from N-terminal his6-tagged 53BP1 (1484 to 1603 residues) (unknown origin) expre"
       }
     ]
   },
-  "priority_score": 5.13,
-  "priority_tier": "Medium",
-  "evidence_summary": "P53 shows modest Open Targets association with lung cancer (score: 0.41, n=5 evidence items). DepMap CRISPR data show dependency in 100% of cancer lines, highest in cancer or benign tumor. ChEMBL reports 45 compounds with potency data against P53; best IC50 \u2248 4.0 nM (lead-quality, pChEMBL=8.4).",
+  "priority_score": 3.35,
+  "priority_tier": "Low",
+  "evidence_summary": "TP53 shows modest Open Targets association with lung cancer (score: 0.41, n=5 evidence items). DepMap CRISPR data show dependency in 0% of cancer lines, highest in cancer or benign tumor. ChEMBL reports 55 compounds with potency data against TP53; best IC50 \u2248 457.1 nM (hit-quality, pChEMBL=6.3).",
   "data_gaps": [
-    "gwas"
+    "gwas",
+    "pubchem"
   ],
   "errors": {}
 }

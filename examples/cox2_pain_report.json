@@ -1,5 +1,5 @@
 {
-  "gene_symbol": "COX2",
+  "gene_symbol": "PTGS2",
   "indication": "pain",
   "resolution": {
     "hgnc_symbol": "PTGS2",
@@ -83,45 +83,40 @@
     "reviewed": true
   },
   "disease_association": {
-    "gene_symbol": "COX2",
+    "gene_symbol": "PTGS2",
     "disease_name": "Pain",
     "disease_efo_id": "HP_0012531",
-    "ensembl_id": "ENSG00000198712",
-    "overall_score": 0.0029361066233284643,
+    "ensembl_id": "ENSG00000073756",
+    "overall_score": 0.6083584091775643,
     "genetic_association_score": null,
     "somatic_mutation_score": null,
-    "known_drug_score": null,
-    "literature_mining_score": 0.024148362238461615,
-    "evidence_count": 1,
+    "known_drug_score": 0.9993998836042253,
+    "literature_mining_score": 0.026070099037578353,
+    "evidence_count": 2,
     "evidence_breakdown": [
       {
         "evidence_type": "literature",
-        "score": 0.024148362238461615
+        "score": 0.026070099037578353
+      },
+      {
+        "evidence_type": "clinical",
+        "score": 0.9993998836042253
       }
     ]
   },
   "cancer_dependency": {
-    "gene_symbol": "COX2",
-    "mean_ceres_score": -1.094,
-    "fraction_dependent_lines": 1.0,
+    "gene_symbol": "PTGS2",
+    "mean_ceres_score": -0.0,
+    "fraction_dependent_lines": 0.0,
     "pan_essential": false,
-    "top_dependent_lineages": [
-      "cancer or benign tumor"
-    ],
-    "cell_lines": [
-      {
-        "cell_line": "myelodysplastic syndrome",
-        "lineage": "cancer or benign tumor",
-        "ceres_score": -1.094,
-        "is_dependent": true
-      }
-    ],
-    "data_source": "Open Targets Platform v4 \u2014 somatic mutation evidence (proxy; DepMap gene not found in Chronos Combined summary)"
+    "top_dependent_lineages": [],
+    "cell_lines": [],
+    "data_source": "DepMap Chronos Combined (0/1208 cell lines dependent)"
   },
   "gwas_evidence": null,
   "compounds": null,
   "chembl_compounds": {
-    "gene_symbol": "COX2",
+    "gene_symbol": "PTGS2",
     "target_chembl_id": "CHEMBL230",
     "total_active_compounds": 88,
     "best_pchembl": 10.1,
@@ -268,9 +263,9 @@
       }
     ]
   },
-  "priority_score": 4.41,
+  "priority_score": 6.32,
   "priority_tier": "Medium",
-  "evidence_summary": "COX2 shows modest Open Targets association with pain (score: 0.00, n=1 evidence items). DepMap CRISPR data show dependency in 100% of cancer lines, highest in cancer or benign tumor. ChEMBL reports 88 compounds with potency data against COX2; best IC50 \u2248 0.1 nM (clinical-grade, pChEMBL=10.1).",
+  "evidence_summary": "PTGS2 shows strong Open Targets association with pain (score: 0.61, n=2 evidence items). Open Targets reports strong known-drug evidence for PTGS2 (score: 1.00), suggesting existing approved or clinical-stage therapeutics \u2014 likely biologics if small-molecule data is sparse. DepMap CRISPR data show dependency in 0% of cancer lines. ChEMBL reports 88 compounds with potency data against PTGS2; best IC50 \u2248 0.1 nM (clinical-grade, pChEMBL=10.1).",
   "data_gaps": [
     "gwas",
     "pubchem"

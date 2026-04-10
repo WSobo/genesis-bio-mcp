@@ -54,6 +54,11 @@ async def prioritize_target(
 
     ncbi_id = resolution.ncbi_gene_id if resolution else None
 
+    # Use canonical symbol for all downstream lookups (handles HER2→ERBB2, p53→TP53, COX2→PTGS2)
+    if resolution and resolution.hgnc_symbol and resolution.hgnc_symbol != symbol:
+        logger.info("Resolved alias %s → %s; using canonical symbol for all lookups", symbol, resolution.hgnc_symbol)
+        symbol = resolution.hgnc_symbol
+
     # Run all independent lookups concurrently
     (protein, protein_err), (disease_assoc, da_err), (cancer_dep, cd_err), (gwas_ev, gw_err), (compounds, co_err), (chembl_compounds, chembl_err) = (
         await asyncio.gather(
@@ -145,6 +150,11 @@ def _compute_score(
     # GWAS evidence (max 2.0)
     if gwas_ev:
         score += min(gwas_ev.total_associations, 10) / 10 * 2.0
+
+    # Clinical / known-drug evidence (max 1.5)
+    # Distinguishes targets with approved drugs from literature-only at the same OT overall_score
+    if disease_assoc and disease_assoc.known_drug_score:
+        score += disease_assoc.known_drug_score * 1.5
 
     # Chemical matter (max 1.5)
     # ChEMBL potency-based scoring takes precedence over PubChem count-based scoring

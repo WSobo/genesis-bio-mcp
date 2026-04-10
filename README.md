@@ -22,12 +22,6 @@ Ask an AI agent *"Assess BRAF as an oncology target for melanoma"* and watch it 
 ### Install
 
 ```bash
-pip install genesis-bio-mcp
-```
-
-Or from source:
-
-```bash
 git clone https://github.com/WSobo/genesis-bio-mcp
 cd genesis-bio-mcp
 uv sync
@@ -41,14 +35,14 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 {
   "mcpServers": {
     "genesis-bio-mcp": {
-      "command": "uvx",
-      "args": ["genesis-bio-mcp"]
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/genesis-bio-mcp", "genesis-bio-mcp"]
     }
   }
 }
 ```
 
-Restart Claude Desktop. You'll see the genesis-bio-mcp tools available in your conversation.
+Replace `/path/to/genesis-bio-mcp` with the absolute path to your clone. Restart Claude Desktop. You'll see the genesis-bio-mcp tools available in your conversation.
 
 ### Try it
 
@@ -63,25 +57,27 @@ Ask Claude:
 ```
 prioritize_target("BRAF", "melanoma")
 
-→ priority_score: 5.37 / 10
-→ priority_tier: Medium
+→ priority_score: 7.11 / 10
+→ priority_tier: High
 → evidence_summary: "BRAF shows strong Open Targets association with melanoma (score: 0.82,
-  n=5 evidence items). DepMap CRISPR data show dependency in 100% of cancer lines, highest
-  in cancer or benign tumor. PubChem reports 1 active compound against BRAF, indicating
-  emerging druggability."
+  n=5 evidence items). Open Targets reports strong known-drug evidence for BRAF (score: 0.98),
+  suggesting existing approved or clinical-stage therapeutics — likely biologics if
+  small-molecule data is sparse. DepMap CRISPR data show dependency in 9% of cancer lines,
+  highest in cancer or benign tumor. ChEMBL reports 68 compounds with potency data against
+  BRAF; best IC50 ≈ 0.3 nM (clinical-grade, pChEMBL=9.5)."
 
 → disease_association.overall_score:          0.82
 → disease_association.somatic_mutation_score: 0.80   # BRAF V600E is a major somatic driver
-→ disease_association.known_drug_score:       null   # not yet mapped in Open Targets
-→ cancer_dependency.fraction_dependent_lines: 1.0    # 100% of lines in OT somatic proxy
-→ cancer_dependency.data_source: "Open Targets Platform v4 — somatic mutation evidence
-                                   (proxy; DepMap gene not found in Chronos Combined summary)"
+→ disease_association.known_drug_score:       0.98   # vemurafenib, dabrafenib (Open Targets clinical evidence)
+→ cancer_dependency.fraction_dependent_lines: 0.095  # 115/1208 lines — selective, not pan-essential
+→ cancer_dependency.data_source: "DepMap Chronos Combined (115/1208 cell lines dependent)"
 → gwas_evidence: null                                # expected — see note below
-→ compounds.total_active_compounds: 1
+→ chembl_compounds.best_pchembl: 9.52
+→ chembl_compounds.total_active_compounds: 68
 → data_gaps: ["gwas"]
 ```
 
-**Score breakdown:** OT (0.82×3=2.46) + DepMap proxy (1.0×2×0.7=1.40, 0.7× confidence discount) + protein quality (reviewed+variants=1.50) + PubChem (1 compound≈0.015) = **5.37**. Score rises significantly when DepMap disk cache is populated (real Chronos data, no 0.7× discount) and ChEMBL returns potency data.
+**Score breakdown:** OT (0.82×3=2.46) + DepMap real (0.095×2=0.19) + clinical (0.98×1.5=1.46) + ChEMBL pChEMBL≥9 (1.5) + protein (reviewed+variants=1.5) = **7.11**.
 
 > **Note on GWAS for BRAF/melanoma**: BRAF V600E is a somatic driver mutation (~50% of melanomas), not a germline susceptibility variant. GWAS Catalog correctly returns no melanoma-trait hits near BRAF. The server reports this as a `data_gap` rather than returning off-topic hits. For germline-driven targets like *FTO* (obesity) or *PCSK9* (cardiovascular disease), GWAS evidence will be strongly populated.
 
@@ -94,10 +90,11 @@ The composite priority score (0–10) combines six evidence axes:
 | Open Targets association | 3.0 | `overall_score × 3` |
 | DepMap CRISPR dependency | 2.0 | `fraction_dependent × 2` (×0.7 confidence discount if OT proxy used) |
 | GWAS evidence | 2.0 | `min(hits, 10) / 10 × 2` |
+| Clinical / known-drug evidence | 1.5 | `known_drug_score × 1.5` — separates approved-drug targets from literature-only |
 | ChEMBL potency | 1.5 | pChEMBL ≥9 → 1.5, ≥7 → 1.0, ≥5 → 0.5, else 0.25 (falls back to PubChem count if ChEMBL absent) |
 | UniProt protein quality | 1.5 | reviewed (+0.5) + variant coverage (max +1.0) |
 
-Pan-essential genes (common_essential in DepMap) have their DepMap contribution capped at 0.5 to reflect narrow therapeutic windows.
+Pan-essential genes (common_essential in DepMap) have their DepMap contribution capped at 0.5 to reflect narrow therapeutic windows. Clinical evidence is sourced from Open Targets `clinical` datatype (covers approved drugs and clinical-stage compounds).
 
 ## Architecture
 

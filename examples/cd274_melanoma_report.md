@@ -1,9 +1,9 @@
 # Target Assessment: CD274 | melanoma
 
-**Priority Score: 3.2/10 — LOW PRIORITY**
+**Priority Score: 4.1/10 — MEDIUM PRIORITY**
 
 ## Evidence Summary
-CD274 shows modest Open Targets association with melanoma (score: 0.40, n=2 evidence items). DepMap CRISPR data show dependency in 0% of cancer lines, highest in cancer or benign tumor. ChEMBL reports 81 compounds with potency data against CD274; best IC50 ≈ 0.0 nM (clinical-grade, pChEMBL=10.7).
+CD274 shows modest Open Targets association with melanoma (score: 0.40, n=2 evidence items). Open Targets reports strong known-drug evidence for CD274 (score: 0.61), suggesting existing approved or clinical-stage therapeutics — likely biologics if small-molecule data is sparse. DepMap CRISPR data show dependency in 0% of cancer lines, highest in cancer or benign tumor. ChEMBL reports 81 compounds with potency data against CD274; best IC50 ≈ 0.0 nM (clinical-grade, pChEMBL=10.7).
 
 ## Scoring Breakdown
 | Source | Contribution | Max |

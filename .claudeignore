@@ -1,0 +1,15 @@
+# Bio-Data (The most important to ignore)
+data/
+examples/*.json
+*.csv
+*.parquet
+
+# Environment & Dependencies
+.venv/
+__pycache__/
+*.pyc
+
+# Logs & Meta
+.pytest_cache/
+.ruff_cache/
+*.log

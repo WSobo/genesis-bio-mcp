@@ -226,7 +226,7 @@ def _parse_row(
         overall_score=score,
         genetic_association_score=datatype_scores.get("genetic_association"),
         somatic_mutation_score=datatype_scores.get("somatic_mutation"),
-        known_drug_score=datatype_scores.get("known_drug"),
+        known_drug_score=datatype_scores.get("known_drug") or datatype_scores.get("clinical"),
         literature_mining_score=datatype_scores.get("literature"),
         evidence_count=len(evidence_breakdown),
         evidence_breakdown=evidence_breakdown,

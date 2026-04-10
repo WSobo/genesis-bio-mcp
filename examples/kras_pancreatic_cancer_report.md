@@ -1,6 +1,6 @@
 # Target Assessment: KRAS | pancreatic cancer
 
-**Priority Score: 4.8/10 — MEDIUM PRIORITY**
+**Priority Score: 4.9/10 — MEDIUM PRIORITY**
 
 ## Evidence Summary
 KRAS shows strong Open Targets association with pancreatic cancer (score: 0.60, n=6 evidence items). CRISPR screens show KRAS is pan-essential (57% of lines dependent), suggesting a potentially narrow therapeutic window. ChEMBL reports 58 compounds with potency data against KRAS; best IC50 ≈ 8.9 nM (lead-quality, pChEMBL=8.1).

@@ -201,7 +201,7 @@
     "overall_score": 0.6023955408734344,
     "genetic_association_score": 0.7040317004665145,
     "somatic_mutation_score": 0.668723877372783,
-    "known_drug_score": null,
+    "known_drug_score": 0.09118961964174316,
     "literature_mining_score": 0.7949607433216401,
     "evidence_count": 6,
     "evidence_breakdown": [
@@ -453,7 +453,7 @@
       }
     ]
   },
-  "priority_score": 4.81,
+  "priority_score": 4.94,
   "priority_tier": "Medium",
   "evidence_summary": "KRAS shows strong Open Targets association with pancreatic cancer (score: 0.60, n=6 evidence items). CRISPR screens show KRAS is pan-essential (57% of lines dependent), suggesting a potentially narrow therapeutic window. ChEMBL reports 58 compounds with potency data against KRAS; best IC50 \u2248 8.9 nM (lead-quality, pChEMBL=8.1).",
   "data_gaps": [
