@@ -117,12 +117,64 @@
       }
     ]
   },
-  "cancer_dependency": null,
+  "cancer_dependency": {
+    "gene_symbol": "FTO",
+    "mean_ceres_score": -0.005,
+    "fraction_dependent_lines": 0.0033,
+    "pan_essential": false,
+    "top_dependent_lineages": [],
+    "cell_lines": [],
+    "data_source": "DepMap Chronos Combined (4/1208 cell lines dependent)"
+  },
   "gwas_evidence": {
     "gene_symbol": "FTO",
     "trait_query": "obesity",
-    "total_associations": 1,
+    "total_associations": 5,
     "associations": [
+      {
+        "study_accession": "",
+        "trait": "Body mass index (MTAG)",
+        "mapped_gene": "",
+        "risk_allele": "rs16945088-A",
+        "p_value": 4e-22,
+        "beta_or_or": 0.026839,
+        "sample_size": null,
+        "population": "694,649 European ancestry individuals",
+        "pubmed_id": null
+      },
+      {
+        "study_accession": "",
+        "trait": "Body mass index",
+        "mapped_gene": "",
+        "risk_allele": "rs62048377-C",
+        "p_value": 8e-10,
+        "beta_or_or": 0.02,
+        "sample_size": null,
+        "population": "1,122,049 European ancestry individuals",
+        "pubmed_id": null
+      },
+      {
+        "study_accession": "",
+        "trait": "Body mass index",
+        "mapped_gene": "",
+        "risk_allele": "rs12920255-?",
+        "p_value": 2e-08,
+        "beta_or_or": null,
+        "sample_size": null,
+        "population": "approximately 458,000 European ancestry individuals",
+        "pubmed_id": null
+      },
+      {
+        "study_accession": "",
+        "trait": "Body mass index",
+        "mapped_gene": "NR",
+        "risk_allele": "rs12920255-?",
+        "p_value": 4e-08,
+        "beta_or_or": null,
+        "sample_size": null,
+        "population": "457,822 European ancestry individuals",
+        "pubmed_id": null
+      },
       {
         "study_accession": "",
         "trait": "Obesity",
@@ -135,7 +187,7 @@
         "pubmed_id": null
       }
     ],
-    "strongest_p_value": 6e-07
+    "strongest_p_value": 4e-22
   },
   "compounds": {
     "gene_symbol": "FTO",
@@ -153,11 +205,157 @@
       }
     ]
   },
-  "priority_score": 3.52,
-  "priority_tier": "Low",
-  "evidence_summary": "FTO shows strong Open Targets association with obesity (score: 0.60, n=4 evidence items). GWAS Catalog links 1 variants near FTO to 'obesity'-related traits (strongest p=6.00e-07). PubChem reports 1 active compounds against FTO, indicating emerging druggability.",
-  "data_gaps": [
-    "depmap"
-  ],
+  "chembl_compounds": {
+    "gene_symbol": "FTO",
+    "target_chembl_id": "CHEMBL2331065",
+    "total_active_compounds": 92,
+    "best_pchembl": 7.22,
+    "compounds": [
+      {
+        "molecule_chembl_id": "CHEMBL4572939",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.22,
+        "assay_description": "Inhibition of FTO (unknown origin) assessed as reduction in demethylation using 39nt-m6 A-ssDNA and 2OG incubated for 2 "
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5196484",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.06,
+        "assay_description": "Inhibition of FTO (unknown origin) demethylation activity by HPLC assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5200892",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.96,
+        "assay_description": "Inhibition of recombinant FTO (unknown origin) using m6A Broccoli as substrate incubated for 2 hrs"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5174419",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.7,
+        "assay_description": "Inhibition of N-terminal His-tagged human FTO expressed in Escherichia coli BL21(DE3) by PAGE based assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5204291",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.46,
+        "assay_description": "Inhibition of recombinant FTO (unknown origin) using m6A Broccoli as substrate incubated for 2 hrs"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5207797",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.46,
+        "assay_description": "Inhibition of recombinant FTO (unknown origin) using m6A Broccoli as substrate incubated for 2 hrs"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4532629",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.4,
+        "assay_description": "Inhibition of FTO (unknown origin) assessed as reduction in demethylation using 39nt-m6 A-ssDNA and 2OG incubated for 2 "
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5183243",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.24,
+        "assay_description": "Inhibition of FTO (unknown origin) demethylation activity by HPLC assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5176527",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.22,
+        "assay_description": "Inhibition of N-terminal His-tagged human FTO expressed in Escherichia coli BL21(DE3) by PAGE based assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5186890",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.17,
+        "assay_description": "Inhibition of recombinant FTO (unknown origin) using m6A Broccoli as substrate incubated for 2 hrs"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4563024",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.16,
+        "assay_description": "Inhibition of FTO (unknown origin) assessed as reduction in demethylation using 39nt-m6 A-ssDNA and 2OG incubated for 2 "
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5176730",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.16,
+        "assay_description": "Inhibition of N-terminal His-tagged human FTO expressed in Escherichia coli BL21(DE3) by PAGE based assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5199622",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.08,
+        "assay_description": "Inhibition of recombinant FTO (unknown origin) using m6A Broccoli as substrate incubated for 2 hrs"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5177222",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.06,
+        "assay_description": "Inhibition of recombinant FTO (unknown origin) using m6A Broccoli as substrate incubated for 2 hrs"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5171501",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.05,
+        "assay_description": "Inhibition of N-terminal His-tagged human FTO expressed in Escherichia coli BL21(DE3) by PAGE based assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5173835",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.05,
+        "assay_description": "Inhibition of N-terminal His-tagged human FTO expressed in Escherichia coli BL21(DE3) by PAGE based assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5173876",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.03,
+        "assay_description": "Inhibition of FTO (unknown origin) demethylation activity by HPLC assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5191997",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.02,
+        "assay_description": "Inhibition of recombinant FTO (unknown origin) using m6A Broccoli as substrate incubated for 2 hrs"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4474241",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.0,
+        "assay_description": "Inhibition of FTO (unknown origin) assessed as reduction in demethylation by measuring N6-mA and A level incubated for 2"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4453979",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.0,
+        "assay_description": "Inhibition of FTO (unknown origin) assessed as reduction in demethylation by measuring N6-mA and A level incubated for 2"
+      }
+    ]
+  },
+  "priority_score": 5.31,
+  "priority_tier": "Medium",
+  "evidence_summary": "FTO shows strong Open Targets association with obesity (score: 0.60, n=4 evidence items). DepMap CRISPR data show dependency in 0% of cancer lines. GWAS Catalog links 5 variants near FTO to 'obesity'-related traits (strongest p=4.00e-22). ChEMBL reports 92 compounds with potency data against FTO; best IC50 \u2248 60.3 nM (lead-quality, pChEMBL=7.2).",
+  "data_gaps": [],
   "errors": {}
 }

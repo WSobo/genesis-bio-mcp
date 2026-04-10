@@ -112,27 +112,30 @@ def _parse_depmap_csv(text: str) -> dict[str, dict]:
     cache: dict[str, dict] = {}
 
     for row in reader:
+        # Normalize column names: lowercase + underscores (handles "Dependent Cell Lines" → "dependent_cell_lines")
+        r = {k.lower().replace(" ", "_"): v for k, v in row.items()}
+
         # Robust dataset filter: keep rows where dataset column contains 'chronos' or 'crispr',
         # or is absent/empty (single-dataset files have no dataset column).
-        dataset = (row.get("dataset") or "").strip().lower()
+        dataset = (r.get("dataset") or "").strip().lower()
         if dataset and "chronos" not in dataset and "crispr" not in dataset:
             continue
 
-        gene = (row.get("gene_name") or row.get("gene") or "").strip().upper()
+        gene = (r.get("gene_name") or r.get("gene") or "").strip().upper()
         if not gene:
             continue
 
         try:
-            dep_lines = int(row.get("dependent_cell_lines", 0) or 0)
-            total_lines = int(row.get("cell_lines_with_data", 0) or 0)
+            dep_lines = int(float(r.get("dependent_cell_lines", 0) or 0))
+            total_lines = int(float(r.get("cell_lines_with_data", 0) or 0))
         except (ValueError, TypeError):
             continue
 
         cache[gene] = {
             "dependent_cell_lines": dep_lines,
             "cell_lines_with_data": total_lines,
-            "strongly_selective": (row.get("strongly_selective", "False") or "False").lower() in ("true", "1", "yes"),
-            "common_essential": (row.get("common_essential", "False") or "False").lower() in ("true", "1", "yes"),
+            "strongly_selective": (r.get("strongly_selective", "False") or "False").lower() in ("true", "1", "yes"),
+            "common_essential": (r.get("common_essential", "False") or "False").lower() in ("true", "1", "yes"),
         }
 
     return cache
@@ -171,13 +174,23 @@ async def load_depmap_cache(client: httpx.AsyncClient) -> dict[str, dict]:
         resp = await client.get(_DEPMAP_SUMMARY_URL, timeout=60.0)
         resp.raise_for_status()
 
-        # The endpoint may return JSON (task) or CSV directly — detect
-        content_type = resp.headers.get("content-type", "")
-        if "json" in content_type:
+        logger.debug(
+            "DepMap gene_dep_summary: status=%d, content-type=%s, body[:200]=%r",
+            resp.status_code,
+            resp.headers.get("content-type", ""),
+            resp.text[:200],
+        )
+
+        # Try to parse as JSON first regardless of content-type — DepMap sometimes
+        # returns a Celery task body with a non-JSON content-type header.
+        try:
             body = resp.json()
             task_id = body.get("id")
             if not task_id:
-                logger.warning("DepMap gene_dep_summary returned unexpected JSON (no task id); falling back to OT")
+                logger.warning(
+                    "DepMap returned JSON with no task id (keys: %s) — falling back to OT",
+                    list(body)[:5],
+                )
                 return {}
 
             logger.info("DepMap gene_dep_summary returned task %s — polling...", task_id)
@@ -187,7 +200,6 @@ async def load_depmap_cache(client: httpx.AsyncClient) -> dict[str, dict]:
                 logger.warning("DepMap task polling failed: %s — falling back to OT", exc)
                 return {}
 
-            # result has {"downloadUrl": "..."} — fetch the CSV from there
             download_url = (result or {}).get("downloadUrl")
             if not download_url:
                 logger.warning("DepMap task succeeded but no downloadUrl in result; falling back to OT")
@@ -197,11 +209,22 @@ async def load_depmap_cache(client: httpx.AsyncClient) -> dict[str, dict]:
             csv_resp.raise_for_status()
             text = csv_resp.text
 
-        else:
-            # Direct CSV response
+        except (ValueError, KeyError):
+            # Not JSON — treat as direct CSV response
             text = resp.text
 
         cache = _parse_depmap_csv(text)
+        if not cache:
+            # Log column names so mismatches are immediately diagnosable
+            import io as _io
+            import csv as _csv
+            _reader = _csv.DictReader(_io.StringIO(text))
+            _first = next(_reader, {})
+            logger.warning(
+                "DepMap CSV parsed to 0 genes — fieldnames=%s, first_row=%s",
+                _reader.fieldnames,
+                dict(list(_first.items())[:4]),
+            )
         logger.info("DepMap cache loaded: %d genes from gene_dep_summary", len(cache))
 
         # Save to disk for future warm starts

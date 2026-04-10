@@ -195,6 +195,12 @@ def _build_summary(
             f"{symbol} shows {strength} Open Targets association with {indication} "
             f"(score: {disease_assoc.overall_score:.2f}, n={disease_assoc.evidence_count} evidence items)."
         )
+        if disease_assoc.known_drug_score and disease_assoc.known_drug_score >= 0.5:
+            parts.append(
+                f"Open Targets reports strong known-drug evidence for {symbol} "
+                f"(score: {disease_assoc.known_drug_score:.2f}), suggesting existing approved or "
+                f"clinical-stage therapeutics — likely biologics if small-molecule data is sparse."
+            )
     else:
         parts.append(f"No Open Targets association data found for {symbol} in {indication}.")
 

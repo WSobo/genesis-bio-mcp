@@ -120,9 +120,157 @@
   },
   "gwas_evidence": null,
   "compounds": null,
-  "priority_score": 2.91,
-  "priority_tier": "Low",
-  "evidence_summary": "COX2 shows modest Open Targets association with pain (score: 0.00, n=1 evidence items). DepMap CRISPR data show dependency in 100% of cancer lines, highest in cancer or benign tumor.",
+  "chembl_compounds": {
+    "gene_symbol": "COX2",
+    "target_chembl_id": "CHEMBL230",
+    "total_active_compounds": 88,
+    "best_pchembl": 10.1,
+    "compounds": [
+      {
+        "molecule_chembl_id": "CHEMBL143776",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 10.1,
+        "assay_description": "Tested in vitro for inhibition against Prostaglandin G/H synthase 2 in human blood (95% confidence limits)"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL140167",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 9.92,
+        "assay_description": "Tested in vitro for inhibition against Prostaglandin G/H synthase 2 in human blood (95% confidence limits)"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL92154",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.96,
+        "assay_description": "Inhibition of PGE-2 production by arachidonic acid-stimulated CHO cells expressing human Prostaglandin G/H synthase 2"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL91118",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.92,
+        "assay_description": "Inhibition of PGE-2 production by arachidonic acid-stimulated CHO cells expressing human Prostaglandin G/H synthase 2"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL42485",
+        "molecule_name": "DUP-697",
+        "standard_type": "IC50",
+        "pchembl_value": 8.68,
+        "assay_description": "Inhibition of PGE-2 production by arachidonic acid-stimulated CHO cells expressing human Prostaglandin G/H synthase 2"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL92443",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.66,
+        "assay_description": "Inhibition of PGE-2 production by arachidonic acid-stimulated CHO cells expressing human Prostaglandin G/H synthase 2"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL420987",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.55,
+        "assay_description": "Inhibition of PGE-2 production by arachidonic acid-stimulated CHO cells expressing human Prostaglandin G/H synthase 2"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL91832",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.3,
+        "assay_description": "Inhibition of PGE-2 production by arachidonic acid-stimulated CHO cells expressing human Prostaglandin G/H synthase 2"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL6",
+        "molecule_name": "INDOMETHACIN",
+        "standard_type": "IC50",
+        "pchembl_value": 8.23,
+        "assay_description": "Inhibition of PGE-2 generation in LPS-stimulated human monocytes (Prostaglandin G/H synthase 2 cell assay)"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL52872",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.22,
+        "assay_description": "Inhibition of human Prostaglandin G/H synthase 2"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL90988",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.92,
+        "assay_description": "Inhibition of PGE-2 production by arachidonic acid-stimulated CHO cells expressing human Prostaglandin G/H synthase 2"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL43511",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.85,
+        "assay_description": "In vitro inhibitory activity against human prostaglandin G/H synthase 2"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL40245",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.7,
+        "assay_description": "In vitro inhibitory activity against human prostaglandin G/H synthase 2"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL54649",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.68,
+        "assay_description": "Inhibition of human Prostaglandin G/H synthase 2"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL274893",
+        "molecule_name": "SC-57666",
+        "standard_type": "IC50",
+        "pchembl_value": 7.59,
+        "assay_description": "Inhibition of human Prostaglandin G/H synthase 2"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL44152",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.52,
+        "assay_description": "In vitro inhibitory activity against human prostaglandin G/H synthase 2"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL43737",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.4,
+        "assay_description": "In vitro inhibitory activity against human prostaglandin G/H synthase 2"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL44283",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.3,
+        "assay_description": "In vitro inhibitory activity against human prostaglandin G/H synthase 2"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL297008",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.22,
+        "assay_description": "In vitro inhibitory activity against human prostaglandin G/H synthase 2"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL43002",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.22,
+        "assay_description": "In vitro inhibitory activity against human prostaglandin G/H synthase 2"
+      }
+    ]
+  },
+  "priority_score": 4.41,
+  "priority_tier": "Medium",
+  "evidence_summary": "COX2 shows modest Open Targets association with pain (score: 0.00, n=1 evidence items). DepMap CRISPR data show dependency in 100% of cancer lines, highest in cancer or benign tumor. ChEMBL reports 88 compounds with potency data against COX2; best IC50 \u2248 0.1 nM (clinical-grade, pChEMBL=10.1).",
   "data_gaps": [
     "gwas",
     "pubchem"

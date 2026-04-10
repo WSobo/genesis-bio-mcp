@@ -174,8 +174,8 @@
   },
   "cancer_dependency": {
     "gene_symbol": "BRAF",
-    "mean_ceres_score": -1.2776,
-    "fraction_dependent_lines": 1.0,
+    "mean_ceres_score": -0.143,
+    "fraction_dependent_lines": 0.0952,
     "pan_essential": false,
     "top_dependent_lineages": [
       "cancer or benign tumor"
@@ -242,7 +242,7 @@
         "is_dependent": true
       }
     ],
-    "data_source": "Open Targets Platform v4 \u2014 somatic mutation evidence (proxy; DepMap gene not found in Chronos Combined summary)"
+    "data_source": "DepMap Chronos Combined (115/1208 cell lines dependent) + Open Targets lineage context"
   },
   "gwas_evidence": null,
   "compounds": {
@@ -261,9 +261,157 @@
       }
     ]
   },
-  "priority_score": 5.37,
+  "chembl_compounds": {
+    "gene_symbol": "BRAF",
+    "target_chembl_id": "CHEMBL5145",
+    "total_active_compounds": 68,
+    "best_pchembl": 9.52,
+    "compounds": [
+      {
+        "molecule_chembl_id": "CHEMBL477989",
+        "molecule_name": "SB590885",
+        "standard_type": "Kd",
+        "pchembl_value": 9.52,
+        "assay_description": "Binding affinity at bRaf kinase in fluorescent ligand displacement assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL372543",
+        "molecule_name": null,
+        "standard_type": "Kd",
+        "pchembl_value": 8.89,
+        "assay_description": "Binding affinity at bRaf kinase in fluorescent ligand displacement assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL200783",
+        "molecule_name": null,
+        "standard_type": "Kd",
+        "pchembl_value": 8.3,
+        "assay_description": "Binding affinity at bRaf kinase in fluorescent ligand displacement assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL200258",
+        "molecule_name": null,
+        "standard_type": "Kd",
+        "pchembl_value": 8.24,
+        "assay_description": "Binding affinity at bRaf kinase in fluorescent ligand displacement assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL200889",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.22,
+        "assay_description": "Inhibition bRaf kinase activity"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL381250",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.22,
+        "assay_description": "Inhibition bRaf kinase activity"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL200412",
+        "molecule_name": null,
+        "standard_type": "Kd",
+        "pchembl_value": 8.22,
+        "assay_description": "Binding affinity at bRaf kinase in fluorescent ligand displacement assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL200320",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.1,
+        "assay_description": "Inhibition bRaf kinase activity"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL304624",
+        "molecule_name": null,
+        "standard_type": "Kd",
+        "pchembl_value": 8.1,
+        "assay_description": "Binding affinity at bRaf kinase in fluorescent ligand displacement assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL373011",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.0,
+        "assay_description": "Inhibition bRaf kinase activity"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL200637",
+        "molecule_name": null,
+        "standard_type": "Kd",
+        "pchembl_value": 7.96,
+        "assay_description": "Binding affinity at bRaf kinase in fluorescent ligand displacement assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL200172",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.92,
+        "assay_description": "Inhibition bRaf kinase activity"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL200863",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.89,
+        "assay_description": "Inhibition bRaf kinase activity"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL371952",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.89,
+        "assay_description": "Inhibition bRaf kinase activity"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL381447",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.85,
+        "assay_description": "Inhibition bRaf kinase activity"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL370353",
+        "molecule_name": null,
+        "standard_type": "Kd",
+        "pchembl_value": 7.85,
+        "assay_description": "Binding affinity at bRaf kinase in fluorescent ligand displacement assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL200164",
+        "molecule_name": null,
+        "standard_type": "Kd",
+        "pchembl_value": 7.77,
+        "assay_description": "Binding affinity at bRaf kinase in fluorescent ligand displacement assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL427196",
+        "molecule_name": null,
+        "standard_type": "Kd",
+        "pchembl_value": 7.66,
+        "assay_description": "Binding affinity at bRaf kinase in fluorescent ligand displacement assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL200942",
+        "molecule_name": null,
+        "standard_type": "Kd",
+        "pchembl_value": 7.57,
+        "assay_description": "Binding affinity at bRaf kinase in fluorescent ligand displacement assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL200118",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.48,
+        "assay_description": "Inhibition bRaf kinase activity"
+      }
+    ]
+  },
+  "priority_score": 5.65,
   "priority_tier": "Medium",
-  "evidence_summary": "BRAF shows strong Open Targets association with melanoma (score: 0.82, n=5 evidence items). DepMap CRISPR data show dependency in 100% of cancer lines, highest in cancer or benign tumor. PubChem reports 1 active compounds against BRAF, indicating emerging druggability.",
+  "evidence_summary": "BRAF shows strong Open Targets association with melanoma (score: 0.82, n=5 evidence items). DepMap CRISPR data show dependency in 9% of cancer lines, highest in cancer or benign tumor. ChEMBL reports 68 compounds with potency data against BRAF; best IC50 \u2248 0.3 nM (clinical-grade, pChEMBL=9.5).",
   "data_gaps": [
     "gwas"
   ],

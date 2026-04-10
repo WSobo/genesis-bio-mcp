@@ -205,8 +205,8 @@
   },
   "cancer_dependency": {
     "gene_symbol": "EGFR",
-    "mean_ceres_score": -1.0743,
-    "fraction_dependent_lines": 0.3878,
+    "mean_ceres_score": -0.284,
+    "fraction_dependent_lines": 0.1896,
     "pan_essential": false,
     "top_dependent_lineages": [
       "cancer or benign tumor"
@@ -273,7 +273,7 @@
         "is_dependent": true
       }
     ],
-    "data_source": "Open Targets Platform v4 \u2014 somatic mutation evidence (proxy; DepMap gene not found in Chronos Combined summary)"
+    "data_source": "DepMap Chronos Combined (229/1208 cell lines dependent) + Open Targets lineage context"
   },
   "gwas_evidence": null,
   "compounds": {
@@ -292,9 +292,157 @@
       }
     ]
   },
-  "priority_score": 4.62,
+  "chembl_compounds": {
+    "gene_symbol": "EGFR",
+    "target_chembl_id": "CHEMBL203",
+    "total_active_compounds": 67,
+    "best_pchembl": 9.35,
+    "compounds": [
+      {
+        "molecule_chembl_id": "CHEMBL304271",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 9.35,
+        "assay_description": "Inhibitory activity towards tyrosine phosphorylation for the epidermal growth factor-receptor kinase"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL264382",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.96,
+        "assay_description": "Inhibitory activity towards tyrosine phosphorylation for the epidermal growth factor-receptor kinase"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL69358",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.92,
+        "assay_description": "Inhibitory activity towards tyrosine phosphorylation for the epidermal growth factor-receptor kinase"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL67003",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.74,
+        "assay_description": "Inhibitory activity towards tyrosine phosphorylation for the epidermal growth factor-receptor kinase"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL305246",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.55,
+        "assay_description": "Inhibitory activity towards tyrosine phosphorylation for the epidermal growth factor-receptor kinase"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL67057",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.35,
+        "assay_description": "Inhibitory activity towards tyrosine phosphorylation for the epidermal growth factor-receptor kinase"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL308645",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.33,
+        "assay_description": "Inhibitory activity towards tyrosine phosphorylation for the epidermal growth factor-receptor kinase"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL69071",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.23,
+        "assay_description": "Inhibitory activity towards tyrosine phosphorylation for the epidermal growth factor-receptor kinase"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL69629",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.19,
+        "assay_description": "Inhibitory activity towards tyrosine phosphorylation for the epidermal growth factor-receptor kinase"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL134312",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.96,
+        "assay_description": "In vitro inhibition of Epidermal growth factor receptor tyrosine kinase isolated from A431 (human carcinoma)."
+      },
+      {
+        "molecule_chembl_id": "CHEMBL66570",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.89,
+        "assay_description": "Inhibitory activity towards tyrosine phosphorylation for the epidermal growth factor-receptor kinase"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL136491",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.85,
+        "assay_description": "In vitro inhibition of Epidermal growth factor receptor tyrosine kinase isolated from A431 (human carcinoma)."
+      },
+      {
+        "molecule_chembl_id": "CHEMBL69966",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.75,
+        "assay_description": "Inhibitory activity towards tyrosine phosphorylation for the epidermal growth factor-receptor kinase"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL302552",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.66,
+        "assay_description": "Inhibitory activity towards tyrosine phosphorylation for the epidermal growth factor-receptor kinase"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL133023",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.62,
+        "assay_description": "In vitro inhibition of Epidermal growth factor receptor tyrosine kinase isolated from A431 (human carcinoma)."
+      },
+      {
+        "molecule_chembl_id": "CHEMBL424093",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.6,
+        "assay_description": "In vitro inhibition of Epidermal growth factor receptor tyrosine kinase isolated from A431 (human carcinoma)."
+      },
+      {
+        "molecule_chembl_id": "CHEMBL305194",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.54,
+        "assay_description": "Inhibitory activity towards tyrosine phosphorylation for the epidermal growth factor-receptor kinase"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL137534",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.42,
+        "assay_description": "In vitro inhibition of Epidermal growth factor receptor tyrosine kinase isolated from A431 (human carcinoma)."
+      },
+      {
+        "molecule_chembl_id": "CHEMBL137617",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.41,
+        "assay_description": "In vitro inhibition of Epidermal growth factor receptor tyrosine kinase isolated from A431 (human carcinoma)."
+      },
+      {
+        "molecule_chembl_id": "CHEMBL68920",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.39,
+        "assay_description": "Inhibitory activity towards tyrosine phosphorylation for the epidermal growth factor-receptor kinase"
+      }
+    ]
+  },
+  "priority_score": 5.94,
   "priority_tier": "Medium",
-  "evidence_summary": "EGFR shows strong Open Targets association with non-small cell lung carcinoma (score: 0.85, n=6 evidence items). DepMap CRISPR data show dependency in 38% of cancer lines, highest in cancer or benign tumor. PubChem reports 1 active compounds against EGFR, indicating emerging druggability.",
+  "evidence_summary": "EGFR shows strong Open Targets association with non-small cell lung carcinoma (score: 0.85, n=6 evidence items). DepMap CRISPR data show dependency in 18% of cancer lines, highest in cancer or benign tumor. ChEMBL reports 67 compounds with potency data against EGFR; best IC50 \u2248 0.4 nM (clinical-grade, pChEMBL=9.3).",
   "data_gaps": [
     "gwas"
   ],

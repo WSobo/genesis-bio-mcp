@@ -227,6 +227,28 @@ def _parse_association(assoc: dict) -> Optional[GwasHit]:
         return None
 
 
+_TRAIT_SYNONYMS: dict[str, list[str]] = {
+    "hypercholesterolemia": ["cholesterol", "ldl", "low-density lipoprotein", "lipid"],
+    "hypercholesterolaemia": ["cholesterol", "ldl", "low-density lipoprotein", "lipid"],
+    "obesity": ["obesity", "body mass index", "bmi", "adiposity", "overweight", "waist"],
+    "rheumatoid arthritis": ["rheumatoid arthritis", "arthritis"],
+    "inflammation": ["inflammation", "inflammatory", "c-reactive protein", "crp"],
+    "cardiovascular disease": ["cardiovascular", "coronary artery", "myocardial infarction", "heart disease"],
+    "type 2 diabetes": ["type 2 diabetes", "t2d", "diabetes mellitus", "glycated haemoglobin", "hba1c"],
+    "alzheimer disease": ["alzheimer", "dementia", "cognitive decline"],
+    "non-small cell lung carcinoma": ["lung cancer", "lung carcinoma", "non-small cell lung"],
+    "squamous cell carcinoma": ["squamous cell", "carcinoma"],
+    "pain": ["pain"],
+}
+
+
 def _filter_by_trait(hits: list[GwasHit], trait: str) -> list[GwasHit]:
     trait_norm = _normalize(trait)
-    return [h for h in hits if trait_norm in _normalize(h.trait)]
+    synonyms = _TRAIT_SYNONYMS.get(trait_norm, [])
+    match_terms = [trait_norm] + [_normalize(s) for s in synonyms]
+
+    def _matches(hit_trait: str) -> bool:
+        ht = _normalize(hit_trait)
+        return any(term in ht for term in match_terms)
+
+    return [h for h in hits if _matches(h.trait)]

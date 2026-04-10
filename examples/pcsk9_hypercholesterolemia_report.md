@@ -1,27 +1,28 @@
 # Target Assessment: PCSK9 | hypercholesterolemia
 
-**Priority Score: 4.0/10 — LOW PRIORITY**
+**Priority Score: 7.6/10 — HIGH PRIORITY**
 
 ## Evidence Summary
-PCSK9 shows strong Open Targets association with hypercholesterolemia (score: 0.83, n=4 evidence items).
+PCSK9 shows strong Open Targets association with hypercholesterolemia (score: 0.83, n=4 evidence items). DepMap CRISPR data show dependency in 5% of cancer lines. GWAS Catalog links 20 variants near PCSK9 to 'hypercholesterolemia'-related traits (strongest p=1.00e-84). ChEMBL reports 76 compounds with potency data against PCSK9; best IC50 ≈ 0.2 nM (clinical-grade, pChEMBL=9.8).
 
 ## Scoring Breakdown
 | Source | Contribution | Max |
 |---|---|---|
 | Open Targets association | 2.48 | 3.0 |
-| Cancer dependency | 0.0 (no data) | 2.0 |
-| GWAS evidence | 0.0 | 2.0 |
-| Chemical matter (PubChem) | 0.0 | 1.5 |
+| Cancer dependency | 0.1 (5% dependent) | 2.0 |
+| GWAS evidence | 2.0 | 2.0 |
+| Chemical matter | 1.5 (ChEMBL pChEMBL=9.8) | 1.5 |
 | Protein annotation | 1.50 | 1.5 |
 
 ## Data Sources
 - **UniProt:** ✓
 - **Open Targets:** ✓
-- **DepMap:** ✗ (no data)
-- **GWAS Catalog:** ✗ (no data)
+- **DepMap:** ✓
+- **GWAS Catalog:** ✓
+- **ChEMBL:** ✓
 - **PubChem:** ✗ (no data)
 
-**Data gaps:** depmap, gwas, pubchem
+**Data gaps:** pubchem
 
 ---
 _Resolved: PCSK9 | NCBI Gene: 255738 | UniProt: Q8NBP7_

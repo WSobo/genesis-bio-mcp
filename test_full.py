@@ -27,6 +27,7 @@ from genesis_bio_mcp.clients.open_targets import OpenTargetsClient
 from genesis_bio_mcp.clients.pubchem import PubChemClient
 from genesis_bio_mcp.clients.uniprot import UniProtClient
 from genesis_bio_mcp.tools.target_prioritization import prioritize_target
+from genesis_bio_mcp.clients.chembl import ChEMBLClient
 
 HEADERS = {
     "User-Agent": "genesis-bio-mcp/0.1 (research; github.com/WSobo/genesis-bio-mcp)",
@@ -67,6 +68,7 @@ async def run_one(
     depmap: DepMapClient,
     gwas: GwasClient,
     pubchem: PubChemClient,
+    chembl: ChEMBLClient,
     examples_dir: Path,
 ) -> dict:
     t0 = time.perf_counter()
@@ -82,6 +84,7 @@ async def run_one(
         depmap=depmap,
         gwas=gwas,
         pubchem=pubchem,
+        chembl=chembl,
     )
     elapsed = time.perf_counter() - t0
 
@@ -140,6 +143,7 @@ async def run(cases: list[tuple[str, str]]) -> None:
             depmap=DepMapClient(http, cache),
             gwas=GwasClient(http),
             pubchem=PubChemClient(http),
+            chembl=ChEMBLClient(http),
         )
 
         summary: list[dict] = []

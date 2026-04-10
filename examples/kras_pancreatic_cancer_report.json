@@ -233,9 +233,9 @@
   },
   "cancer_dependency": {
     "gene_symbol": "KRAS",
-    "mean_ceres_score": -1.3752,
-    "fraction_dependent_lines": 1.0,
-    "pan_essential": false,
+    "mean_ceres_score": -0.864,
+    "fraction_dependent_lines": 0.5762,
+    "pan_essential": true,
     "top_dependent_lineages": [
       "cancer or benign tumor"
     ],
@@ -301,13 +301,161 @@
         "is_dependent": true
       }
     ],
-    "data_source": "Open Targets Platform v4 \u2014 somatic mutation evidence (proxy; DepMap gene not found in Chronos Combined summary)"
+    "data_source": "DepMap Chronos Combined (696/1208 cell lines dependent) + Open Targets lineage context"
   },
   "gwas_evidence": null,
   "compounds": null,
-  "priority_score": 4.71,
+  "chembl_compounds": {
+    "gene_symbol": "KRAS",
+    "target_chembl_id": "CHEMBL2189121",
+    "total_active_compounds": 58,
+    "best_pchembl": 8.05,
+    "compounds": [
+      {
+        "molecule_chembl_id": "CHEMBL3958857",
+        "molecule_name": null,
+        "standard_type": "Ki",
+        "pchembl_value": 8.05,
+        "assay_description": "Binding affinity to GMP-stabilized FLAG-tagged KRAS G12C mutant (unknown origin) using desthiobiotin-GTP probe by alphas"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL3577123",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.8,
+        "assay_description": "Inhibition of KRAS G13D mutant in human HCT116 cells assessed as inhibition of ERK phosphorylation by ELISA"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4072295",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.38,
+        "assay_description": "Inhibition of biotinylated wild-type K-Ras (unknown origin) assessed as inhibition of human SOS1 (564 to 1049 residues)-"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL3577120",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.34,
+        "assay_description": "Inhibition of KRAS G13D mutant in human HCT116 cells assessed as inhibition of ERK phosphorylation by ELISA"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL3577119",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.32,
+        "assay_description": "Inhibition of KRAS G13D mutant in human HCT116 cells assessed as inhibition of ERK phosphorylation by ELISA"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL3577114",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.24,
+        "assay_description": "Inhibition of KRAS G13D mutant in human HCT116 cells assessed as inhibition of ERK phosphorylation by ELISA"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4082777",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.09,
+        "assay_description": "Inhibition of biotinylated wild-type K-Ras (unknown origin) assessed as inhibition of human SOS1 (564 to 1049 residues)-"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL3577115",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 7.04,
+        "assay_description": "Inhibition of KRAS G13D mutant in human HCT116 cells assessed as inhibition of ERK phosphorylation by ELISA"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4070657",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.98,
+        "assay_description": "Inhibition of biotinylated wild-type K-Ras (unknown origin) assessed as inhibition of human SOS1 (564 to 1049 residues)-"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL3577116",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.92,
+        "assay_description": "Inhibition of KRAS G13D mutant in human HCT116 cells assessed as inhibition of ERK phosphorylation by ELISA"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL3577121",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.92,
+        "assay_description": "Inhibition of KRAS G13D mutant in human HCT116 cells assessed as inhibition of ERK phosphorylation by ELISA"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4100766",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.85,
+        "assay_description": "Inhibition of biotinylated wild-type K-Ras (unknown origin) assessed as inhibition of human SOS1 (564 to 1049 residues)-"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL3577124",
+        "molecule_name": "LY-3009120",
+        "standard_type": "IC50",
+        "pchembl_value": 6.82,
+        "assay_description": "Inhibition of KRAS G13D mutant in human HCT116 cells assessed as inhibition of ERK phosphorylation by ELISA"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL3577117",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.8,
+        "assay_description": "Inhibition of KRAS G13D mutant in human HCT116 cells assessed as inhibition of ERK phosphorylation by ELISA"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL3218638",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.7,
+        "assay_description": "Inhibition of recombinant HA-tagged K-Ras G12V mutant (unknown origin) assessed as disruption of interaction with GST-ta"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4083770",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.67,
+        "assay_description": "Inhibition of biotinylated wild-type K-Ras (unknown origin) assessed as inhibition of human SOS1 (564 to 1049 residues)-"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL3577118",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 6.57,
+        "assay_description": "Inhibition of KRAS G13D mutant in human HCT116 cells assessed as inhibition of ERK phosphorylation by ELISA"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL3922435",
+        "molecule_name": null,
+        "standard_type": "Ki",
+        "pchembl_value": 6.55,
+        "assay_description": "Binding affinity to GMP-stabilized FLAG-tagged KRAS G12C mutant (unknown origin) using desthiobiotin-GTP probe by alphas"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL3904433",
+        "molecule_name": null,
+        "standard_type": "Ki",
+        "pchembl_value": 6.43,
+        "assay_description": "Binding affinity to GMP-stabilized FLAG-tagged KRAS G12C mutant (unknown origin) using desthiobiotin-GTP probe by alphas"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL3935647",
+        "molecule_name": null,
+        "standard_type": "Ki",
+        "pchembl_value": 6.42,
+        "assay_description": "Binding affinity to GMP-stabilized FLAG-tagged KRAS G12C mutant (unknown origin) using desthiobiotin-GTP probe by alphas"
+      }
+    ]
+  },
+  "priority_score": 4.81,
   "priority_tier": "Medium",
-  "evidence_summary": "KRAS shows strong Open Targets association with pancreatic cancer (score: 0.60, n=6 evidence items). DepMap CRISPR data show dependency in 100% of cancer lines, highest in cancer or benign tumor.",
+  "evidence_summary": "KRAS shows strong Open Targets association with pancreatic cancer (score: 0.60, n=6 evidence items). CRISPR screens show KRAS is pan-essential (57% of lines dependent), suggesting a potentially narrow therapeutic window. ChEMBL reports 58 compounds with potency data against KRAS; best IC50 \u2248 8.9 nM (lead-quality, pChEMBL=8.1).",
   "data_gaps": [
     "gwas",
     "pubchem"

@@ -82,8 +82,8 @@
   },
   "cancer_dependency": {
     "gene_symbol": "CD274",
-    "mean_ceres_score": -0.8938,
-    "fraction_dependent_lines": 0.02,
+    "mean_ceres_score": -0.0,
+    "fraction_dependent_lines": 0.0,
     "pan_essential": false,
     "top_dependent_lineages": [
       "cancer or benign tumor"
@@ -150,13 +150,161 @@
         "is_dependent": false
       }
     ],
-    "data_source": "Open Targets Platform v4 \u2014 somatic mutation evidence (proxy; DepMap gene not found in Chronos Combined summary)"
+    "data_source": "DepMap Chronos Combined (0/1208 cell lines dependent) + Open Targets lineage context"
   },
   "gwas_evidence": null,
   "compounds": null,
-  "priority_score": 1.72,
+  "chembl_compounds": {
+    "gene_symbol": "CD274",
+    "target_chembl_id": "CHEMBL3580522",
+    "total_active_compounds": 81,
+    "best_pchembl": 10.72,
+    "compounds": [
+      {
+        "molecule_chembl_id": "CHEMBL4473436",
+        "molecule_name": null,
+        "standard_type": "Kd",
+        "pchembl_value": 10.72,
+        "assay_description": "Binding affinity to FC-tagged human PDL1 by SPR assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5412235",
+        "molecule_name": null,
+        "standard_type": "Ki",
+        "pchembl_value": 9.71,
+        "assay_description": "Inhibition of [89Zr]Zr-atezolizumab binding from human PD-L1 transfected in CHO cells preincubated for 30 mins followed "
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4456990",
+        "molecule_name": null,
+        "standard_type": "Kd",
+        "pchembl_value": 9.7,
+        "assay_description": "Binding affinity to FC-tagged human PDL1 by SPR assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4578475",
+        "molecule_name": null,
+        "standard_type": "Kd",
+        "pchembl_value": 9.68,
+        "assay_description": "Binding affinity to FC-tagged human PDL1 by SPR assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4460716",
+        "molecule_name": null,
+        "standard_type": "Kd",
+        "pchembl_value": 9.54,
+        "assay_description": "Binding affinity to FC-tagged human PDL1 by SPR assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4776444",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 9.0,
+        "assay_description": "Binding affinity to human PDL1 assessed as reduction in PDL1/human PD1protein-protein interaction by HTRF binding assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4785255",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 9.0,
+        "assay_description": "Binding affinity to human PDL1 assessed as reduction in PDL1/human PD1protein-protein interaction by HTRF binding assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4776700",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 9.0,
+        "assay_description": "Binding affinity to human PDL1 assessed as reduction in PDL1/human PD1protein-protein interaction by HTRF binding assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5171101",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.99,
+        "assay_description": "Inhibition of PD-L1 (unknown origin) by HTRF assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4472332",
+        "molecule_name": null,
+        "standard_type": "Kd",
+        "pchembl_value": 8.96,
+        "assay_description": "Binding affinity to FC-tagged human PDL1 by SPR assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5207924",
+        "molecule_name": null,
+        "standard_type": "Kd",
+        "pchembl_value": 8.92,
+        "assay_description": "Binding affinity towards His-tagged recombinant human PD-L1 measured by MicroScale Thermophoresis (MST) assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4071326",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.85,
+        "assay_description": "Binding affinity to His-tagged PD-L1 (unknown origin) assessed as reduction in PD-L1/PD1-Ig interaction preincubated wit"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4084368",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.65,
+        "assay_description": "Binding affinity to His-tagged PD-L1 (unknown origin) assessed as reduction in PD-L1/PD1-Ig interaction preincubated wit"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4515820",
+        "molecule_name": null,
+        "standard_type": "Kd",
+        "pchembl_value": 8.52,
+        "assay_description": "Binding affinity to FC-tagged human PDL1 by SPR assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4765124",
+        "molecule_name": null,
+        "standard_type": "Kd",
+        "pchembl_value": 8.49,
+        "assay_description": "Binding affinity to human PD1-L1 (18-134 residues) expressed in Escherichia coli BL21 (DE3) incubated for 1 hr by MST an"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL5092744",
+        "molecule_name": null,
+        "standard_type": "Kd",
+        "pchembl_value": 8.48,
+        "assay_description": "Binding affinity to human PD-L1 assessed as dissociation constant by surface plasmon resonance analysis"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4473243",
+        "molecule_name": null,
+        "standard_type": "Kd",
+        "pchembl_value": 8.43,
+        "assay_description": "Binding affinity to FC-tagged human PDL1 by SPR assay"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4749472",
+        "molecule_name": null,
+        "standard_type": "Kd",
+        "pchembl_value": 8.4,
+        "assay_description": "Binding affinity to human PD1-L1 (18-134 residues) expressed in Escherichia coli BL21 (DE3) incubated for 1 hr by MST an"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL4288470",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.28,
+        "assay_description": "Inhibition of PD-L1 (unknown origin)"
+      },
+      {
+        "molecule_chembl_id": "CHEMBL3582257",
+        "molecule_name": null,
+        "standard_type": "IC50",
+        "pchembl_value": 8.22,
+        "assay_description": "Binding affinity to His-tagged PD-L1 (unknown origin) assessed as inhibition of interaction with PD1 preincubated for 15"
+      }
+    ]
+  },
+  "priority_score": 3.2,
   "priority_tier": "Low",
-  "evidence_summary": "CD274 shows modest Open Targets association with melanoma (score: 0.40, n=2 evidence items). DepMap CRISPR data show dependency in 2% of cancer lines, highest in cancer or benign tumor.",
+  "evidence_summary": "CD274 shows modest Open Targets association with melanoma (score: 0.40, n=2 evidence items). DepMap CRISPR data show dependency in 0% of cancer lines, highest in cancer or benign tumor. ChEMBL reports 81 compounds with potency data against CD274; best IC50 \u2248 0.0 nM (clinical-grade, pChEMBL=10.7).",
   "data_gaps": [
     "gwas",
     "pubchem"
