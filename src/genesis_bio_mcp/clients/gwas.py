@@ -76,7 +76,7 @@ class GwasClient:
         if not associations:
             try:
                 associations = await asyncio.wait_for(
-                    self._fetch_by_gene_symbol(symbol), timeout=5.0
+                    self._fetch_by_gene_symbol(symbol), timeout=10.0
                 )
             except TimeoutError:
                 logger.warning("GWAS SNP path timed out for %s, returning gap", symbol)
