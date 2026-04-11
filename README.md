@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple)](https://modelcontextprotocol.io)
 
-An MCP server that connects AI agents to 12 biomedical databases for drug discovery target prioritization and experiment design.
+An MCP server that connects AI agents to 14 tools across 12 biomedical databases for drug discovery target prioritization and experiment design.
 
 Ask *"Find underexplored MAPK kinases with no approved drugs"* and a Claude-powered workflow agent chains queries across UniProt, Open Targets, DepMap, GWAS Catalog, ChEMBL, PubChem, AlphaFold, STRING, DGIdb, ClinicalTrials.gov, and Reactome into a structured evidence report — no hardcoded scripts, no manual API calls.
 
@@ -179,14 +179,16 @@ The composite priority score (0–10) combines six evidence axes:
 
 | Source | Max | Logic |
 |--------|-----|-------|
-| Open Targets association | 3.0 | `overall_score × 3` |
-| DepMap CRISPR dependency | 2.0 | `fraction_dependent × 2` (×0.7 if OT proxy used) |
+| Open Targets association | 3.0† | `overall_score × 3` |
+| DepMap CRISPR dependency | 2.0 | `fraction_dependent × 2` (×0.7 if OT proxy used; ×1.2 if indication matches top lineage) |
 | GWAS evidence | 2.0 | `min(hits, 10) / 10 × 2` |
 | Clinical / known-drug evidence | 1.5 | `known_drug_score × 1.5` |
 | ChEMBL potency | 1.5 | pChEMBL ≥9 → 1.5, ≥7 → 1.0, ≥5 → 0.5, else 0.25 |
 | UniProt protein quality | 1.5 | reviewed (+0.5) + variant coverage (max +1.0) |
 
 Pan-essential genes (DepMap `common_essential`) have their DepMap contribution capped at 0.5.
+
+† **Biologics floor**: when `known_drug_score > 0.9` AND both `genetic_association_score` and `somatic_mutation_score` are null (non-applicable evidence classes for CNV-driven or cytokine targets), the OT contribution is floored at 3.25. This prevents pharmacologically-validated targets like HER2/breast cancer and TNF/RA from being underscored because OT's multi-datatype average is depressed by evidence classes that don't apply to their target mechanism. Targets with populated genetic or somatic OT scores (e.g. BRAF/melanoma) are unaffected.
 
 ## Architecture
 
@@ -197,7 +199,7 @@ src/genesis_bio_mcp/
 ├── workflow_agent.py              # ToolSpec registry, run_agent_loop(), format_registry_docs()
 ├── clients/
 │   ├── uniprot.py                 # UniProt REST (session-scoped cache)
-│   ├── open_targets.py            # Open Targets GraphQL: 3-step target–disease resolution
+│   ├── open_targets.py            # Open Targets GraphQL: 3-step target–disease resolution; 5xx retry with 2s backoff
 │   ├── depmap.py                  # DepMap task API + disk cache + OT lineage fallback
 │   ├── gwas.py                    # GWAS Catalog HAL/REST, Unicode normalization
 │   ├── pubchem.py                 # PubChem REST, Semaphore rate limiting, tenacity retries
@@ -226,6 +228,9 @@ src/genesis_bio_mcp/
 | `workflow_agent.py` with `ToolSpec` registry | Each tool has `tool_category` + embedding-searchable `use_when` — enables dynamic selection without hardcoded routing |
 | Session-scoped dict cache on UniProt, AlphaFold, Reactome | Repeated queries (e.g. `compare_targets` on the same gene) served from memory; no redundant HTTP round-trips |
 | `response_format` param on all tools | Default `"markdown"` for agent consumption; `"json"` for programmatic / pipeline integration |
+| OT 5xx retry in `_graphql()` | Single retry with 2s sleep on HTTP 500–599; 4xx and network errors are single-attempt |
+| `[OT UNAVAILABLE]` degraded flag | When OT fails after retry, evidence summary explicitly flags the outage and degraded score rather than silently reporting "no association found" |
+| GWAS caution caveat (three-gate) | Fires only when: ≥5 GWAS hits AND known_drug <0.1 AND literature_mining <0.15 — prevents false positives on validated targets (FTO/obesity) while catching noise (BRAF/T2D) |
 
 ### MCP Resource: `tool://registry`
 
