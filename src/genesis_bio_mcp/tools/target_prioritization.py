@@ -118,6 +118,27 @@ async def prioritize_target(
         disease_assoc, cancer_dep, gwas_ev, compounds, protein, chembl_compounds
     )
     priority_tier = _tier(priority_score)
+
+    # Confidence scoring: quantify data completeness and flag proxy sources
+    _CORE_SOURCES = ["uniprot", "open_targets", "depmap", "gwas", "pubchem", "chembl"]
+    filled = sum(1 for s in _CORE_SOURCES if s not in data_gaps)
+    data_coverage_pct = round(filled / len(_CORE_SOURCES) * 100, 1)
+
+    proxy_data_flags: dict[str, bool] = {}
+    if cancer_dep is not None and "DepMap Chronos" not in cancer_dep.data_source:
+        proxy_data_flags["depmap"] = True
+    if chembl_compounds is None and compounds is not None:
+        proxy_data_flags["compounds"] = True
+
+    missing_fraction = 1.0 - data_coverage_pct / 100.0
+    score_bound = round(priority_score * missing_fraction * 0.5, 2)
+    score_confidence_interval: tuple[float, float] | None = None
+    if score_bound > 0:
+        score_confidence_interval = (
+            round(max(0.0, priority_score - score_bound), 2),
+            round(min(10.0, priority_score + score_bound), 2),
+        )
+
     evidence_summary = _build_summary(
         symbol,
         indication,
@@ -169,6 +190,9 @@ async def prioritize_target(
         evidence_summary=evidence_summary,
         data_gaps=data_gaps,
         errors=errors,
+        data_coverage_pct=data_coverage_pct,
+        proxy_data_flags=proxy_data_flags,
+        score_confidence_interval=score_confidence_interval,
         protein_structure=ext_structure,
         protein_interactome=ext_interactome,
         drug_history=ext_drug_history,

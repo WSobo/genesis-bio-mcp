@@ -768,6 +768,28 @@ class TargetPrioritizationReport(BaseModel):
         default_factory=dict,
         description="Map of module name -> error message for any failed lookups",
     )
+    # Validation / confidence layer
+    data_coverage_pct: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=100.0,
+        description="Percentage of the 6 core data sources that returned usable data (0–100)",
+    )
+    proxy_data_flags: dict[str, bool] = Field(
+        default_factory=dict,
+        description=(
+            "Per-axis flag: True if the score contribution used proxy/estimated data rather than "
+            "direct measurement. Keys: 'depmap' (OT somatic proxy instead of CRISPR), "
+            "'compounds' (PubChem count only, no ChEMBL potency data)."
+        ),
+    )
+    score_confidence_interval: tuple[float, float] | None = Field(
+        default=None,
+        description=(
+            "(lower_bound, upper_bound) for priority_score based on data completeness. "
+            "None when all core sources returned data."
+        ),
+    )
 
     def to_markdown(self) -> str:
         tier_emoji = {
@@ -863,6 +885,29 @@ class TargetPrioritizationReport(BaseModel):
             lines += ["", "**Errors:**"]
             for module, msg in self.errors.items():
                 lines.append(f"- `{module}`: {msg[:120]}")
+
+        # Confidence assessment (populated when data_coverage_pct > 0)
+        if self.data_coverage_pct > 0 or self.proxy_data_flags or self.score_confidence_interval:
+            lines += ["", "## Confidence Assessment"]
+            lines.append(
+                f"**Data coverage:** {self.data_coverage_pct:.0f}% of core sources returned data"
+            )
+            if self.score_confidence_interval:
+                lo, hi = self.score_confidence_interval
+                lines.append(
+                    f"**Score range:** {lo:.1f}–{hi:.1f}/10 "
+                    f"(uncertainty from {100 - self.data_coverage_pct:.0f}% missing sources)"
+                )
+            if any(self.proxy_data_flags.values()):
+                lines.append("**Proxy data used (reduced confidence):**")
+                _proxy_labels = {
+                    "depmap": "DepMap — OT somatic mutation proxy instead of real CRISPR data",
+                    "compounds": "Chemical matter — PubChem count only, no ChEMBL potency data",
+                }
+                for axis, is_proxy in self.proxy_data_flags.items():
+                    if is_proxy:
+                        label = _proxy_labels.get(axis, axis)
+                        lines.append(f"  - {label}")
 
         # Extended mode sections
         if self.protein_structure:

@@ -13,6 +13,7 @@ Exposes 12 tools for biomedical database queries:
   - get_pathway_context      Reactome: pathway membership and enrichment
   - prioritize_target        Orchestration: full target assessment report
   - compare_targets          Compare 2–5 targets side by side for an indication
+  - run_biology_workflow     AI agent: dynamic tool selection for multi-step questions
 
 All tools return Markdown strings for direct LLM consumption.
 """
@@ -25,6 +26,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 
 from genesis_bio_mcp.clients.alphafold import AlphaFoldClient
 from genesis_bio_mcp.clients.chembl import ChEMBLClient
@@ -41,6 +43,11 @@ from genesis_bio_mcp.models import ComparisonReport, DrugHistory, TargetComparis
 from genesis_bio_mcp.tools.gene_resolver import resolve_gene as _resolve_gene
 from genesis_bio_mcp.tools.target_prioritization import (
     prioritize_target as _prioritize_target,
+)
+from genesis_bio_mcp.workflow_agent import (
+    build_tool_registry,
+    format_registry_docs,
+    run_agent_loop,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -77,11 +84,39 @@ mcp = FastMCP("genesis-bio-mcp", lifespan=lifespan)
 
 
 # ---------------------------------------------------------------------------
+# Internal helper: alias-tolerant symbol resolution
+# ---------------------------------------------------------------------------
+
+
+async def _resolve_symbol(gene_name: str) -> tuple[str, str | None]:
+    """Resolve a gene name or alias to (canonical_hgnc_symbol, ncbi_gene_id).
+
+    Called at the top of every individual tool so that common aliases
+    (HER2 → ERBB2, p53 → TP53, COX2 → PTGS2) are transparently resolved
+    before any database query.  Falls back silently to the uppercased input
+    if resolution fails, so tools never hard-fail on lookup errors.
+
+    Returns:
+        (hgnc_symbol, ncbi_gene_id) — ncbi_gene_id may be None if NCBI lookup failed.
+    """
+    try:
+        resolution = await _resolve_gene(gene_name, uniprot_client=mcp.state.uniprot)
+        symbol = resolution.hgnc_symbol or gene_name.strip().upper()
+        return symbol, resolution.ncbi_gene_id
+    except Exception:
+        return gene_name.strip().upper(), None
+
+
+# ---------------------------------------------------------------------------
 # Tool definitions — all return Markdown strings for LLM readability
 # ---------------------------------------------------------------------------
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    )
+)
 async def resolve_gene(gene_name: str) -> str:
     """Resolve a gene name or alias to canonical identifiers across databases.
 
@@ -99,7 +134,11 @@ async def resolve_gene(gene_name: str) -> str:
     return result.to_markdown()
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    )
+)
 async def get_protein_info(gene_symbol: str) -> str:
     """Retrieve protein-level annotation for a human gene from UniProt Swiss-Prot.
 
@@ -115,13 +154,18 @@ async def get_protein_info(gene_symbol: str) -> str:
         Markdown with function summary, pathways, disease associations, PDB IDs,
         known variants, and reviewed status.
     """
+    gene_symbol, _ = await _resolve_symbol(gene_symbol)
     result = await mcp.state.uniprot.get_protein(gene_symbol)
     if result is None:
         return f"**Error:** No UniProt Swiss-Prot entry found for gene '{gene_symbol}' in Homo sapiens."
     return result.to_markdown()
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    )
+)
 async def get_target_disease_association(gene_symbol: str, disease_name: str) -> str:
     """Query Open Targets for the evidence-based association score between a gene and disease.
 
@@ -139,13 +183,18 @@ async def get_target_disease_association(gene_symbol: str, disease_name: str) ->
         Markdown with overall_score and per-datatype evidence scores
         (genetic_association, somatic_mutation, known_drug, literature).
     """
+    gene_symbol, _ = await _resolve_symbol(gene_symbol)
     result = await mcp.state.open_targets.get_association(gene_symbol, disease_name)
     if result is None:
         return f"**Error:** No Open Targets association found for '{gene_symbol}' and '{disease_name}'."
     return result.to_markdown()
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    )
+)
 async def get_cancer_dependency(gene_symbol: str) -> str:
     """Retrieve CRISPR essentiality scores for a gene across cancer cell lines from DepMap.
 
@@ -161,6 +210,7 @@ async def get_cancer_dependency(gene_symbol: str) -> str:
         Markdown with fraction of dependent lines, pan-essential flag, top lineages,
         and the data source (real DepMap or OT proxy).
     """
+    gene_symbol, _ = await _resolve_symbol(gene_symbol)
     result = await mcp.state.depmap.get_essentiality(gene_symbol)
     if result is None:
         return (
@@ -170,7 +220,11 @@ async def get_cancer_dependency(gene_symbol: str) -> str:
     return result.to_markdown()
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    )
+)
 async def get_gwas_evidence(gene_symbol: str, trait: str) -> str:
     """Retrieve GWAS Catalog associations linking a gene locus to a disease trait.
 
@@ -186,13 +240,18 @@ async def get_gwas_evidence(gene_symbol: str, trait: str) -> str:
     Returns:
         Markdown with GWAS hit count, strongest p-value, and top associations table.
     """
-    result = await mcp.state.gwas.get_evidence(gene_symbol, trait)
+    gene_symbol, ncbi_gene_id = await _resolve_symbol(gene_symbol)
+    result = await mcp.state.gwas.get_evidence(gene_symbol, trait, ncbi_gene_id=ncbi_gene_id)
     if result is None:
         return f"**Error:** No GWAS Catalog associations found for gene '{gene_symbol}' and trait '{trait}'."
     return result.to_markdown()
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    )
+)
 async def get_compounds(gene_symbol: str) -> str:
     """Retrieve small molecules with bioactivity against a gene target from PubChem.
 
@@ -206,13 +265,18 @@ async def get_compounds(gene_symbol: str) -> str:
     Returns:
         Markdown with total active compound count and top compounds by potency (IC50/EC50 in nM).
     """
+    gene_symbol, _ = await _resolve_symbol(gene_symbol)
     result = await mcp.state.pubchem.get_compounds(gene_symbol)
     if result is None:
         return f"**Error:** No PubChem bioactivity data found for gene '{gene_symbol}'."
     return result.to_markdown()
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    )
+)
 async def get_protein_structure(gene_symbol: str) -> str:
     """Retrieve structural data for a protein from AlphaFold and RCSB PDB.
 
@@ -227,7 +291,7 @@ async def get_protein_structure(gene_symbol: str) -> str:
         Markdown with AlphaFold pLDDT score, PDB structure count and resolution,
         and whether ligand-bound structures are available.
     """
-    # Resolve UniProt accession first
+    gene_symbol, _ = await _resolve_symbol(gene_symbol)
     protein = await mcp.state.uniprot.get_protein(gene_symbol)
     accession = protein.uniprot_accession if protein else None
     result = await mcp.state.alphafold.get_structure(gene_symbol, uniprot_accession=accession)
@@ -236,7 +300,11 @@ async def get_protein_structure(gene_symbol: str) -> str:
     return result.to_markdown()
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    )
+)
 async def get_protein_interactome(gene_symbol: str) -> str:
     """Retrieve protein interaction partners from STRING to assess selectivity risks.
 
@@ -251,13 +319,18 @@ async def get_protein_interactome(gene_symbol: str) -> str:
         Markdown with top 20 interaction partners sorted by STRING confidence score,
         evidence types (experiments, database, coexpression), and total partner count.
     """
+    gene_symbol, _ = await _resolve_symbol(gene_symbol)
     result = await mcp.state.string_db.get_interactome(gene_symbol)
     if result is None or result.total_partners == 0:
         return f"**Error:** No STRING interaction data found for '{gene_symbol}'."
     return result.to_markdown()
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    )
+)
 async def get_drug_history(gene_symbol: str) -> str:
     """Retrieve the drug development history for a gene target.
 
@@ -273,6 +346,7 @@ async def get_drug_history(gene_symbol: str) -> str:
         Markdown with known drugs (type, phase, approval status), trial counts by
         phase, and a table of recent clinical trials from ClinicalTrials.gov.
     """
+    gene_symbol, _ = await _resolve_symbol(gene_symbol)
     drugs, ct_result = await asyncio.gather(
         mcp.state.dgidb.get_drug_interactions(gene_symbol),
         mcp.state.clinical_trials.get_trials(gene_symbol),
@@ -291,7 +365,11 @@ async def get_drug_history(gene_symbol: str) -> str:
     return result.to_markdown()
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    )
+)
 async def get_pathway_context(gene_symbol: str) -> str:
     """Retrieve biological pathway membership for a gene from Reactome.
 
@@ -307,13 +385,18 @@ async def get_pathway_context(gene_symbol: str) -> str:
         Markdown with top enriched Reactome pathways, enrichment p-values,
         pathway categories, and gene counts per pathway.
     """
+    gene_symbol, _ = await _resolve_symbol(gene_symbol)
     result = await mcp.state.reactome.get_pathway_context(gene_symbol)
     if result is None or not result.pathways:
         return f"**Error:** No Reactome pathway data found for '{gene_symbol}'."
     return result.to_markdown()
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=False, openWorldHint=True
+    )
+)
 async def prioritize_target(gene_symbol: str, indication: str, extended: bool = False) -> str:
     """Generate a comprehensive drug discovery target assessment report.
 
@@ -356,7 +439,11 @@ async def prioritize_target(gene_symbol: str, indication: str, extended: bool = 
     return result.to_markdown()
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=False, openWorldHint=True
+    )
+)
 async def compare_targets(gene_symbols: list[str], indication: str) -> str:
     """Compare 2–5 drug targets side by side for a given therapeutic indication.
 
@@ -437,6 +524,65 @@ async def compare_targets(gene_symbols: list[str], indication: str) -> str:
 
     comparison = ComparisonReport(indication=indication, rows=rows)
     return comparison.to_markdown()
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=False, openWorldHint=True
+    )
+)
+async def run_biology_workflow(question: str) -> str:
+    """Answer a complex biology or drug discovery question using AI-driven tool selection.
+
+    Use this tool for multi-step questions that require chaining several databases in a
+    sequence the caller hasn't pre-determined. An internal Claude agent reasons about
+    which tools to call and in what order, executes them, and synthesizes the results.
+
+    Compared to calling individual tools directly:
+    - Handles questions involving unknown pathways, novel target lists, or open-ended
+      discovery tasks where the right tool sequence is not obvious in advance.
+    - Dynamically adapts — if a tool returns unexpected data (e.g. a gene resolves to
+      a different symbol), the agent adjusts subsequent calls accordingly.
+    - Returns a synthesized Markdown answer citing specific evidence numbers.
+
+    Args:
+        question: Free-text biology or drug discovery question. Examples:
+            - 'Find underexplored targets in the MAPK pathway with no approved drugs'
+            - 'Is KRAS druggable? What is the best chemical matter available?'
+            - 'Compare BRAF and MEK1 for melanoma target selection'
+            - 'What is the genetic evidence linking FTO to obesity?'
+
+    Returns:
+        Synthesized Markdown answer with citations from all consulted databases.
+    """
+    registry = build_tool_registry(mcp.state)
+    return await run_agent_loop(question, registry)
+
+
+# ---------------------------------------------------------------------------
+# MCP Resource: tool discovery
+# ---------------------------------------------------------------------------
+
+
+@mcp.resource("tool://registry")
+async def tool_registry_resource() -> str:
+    """Structured reference of all available tools for agent and client discovery.
+
+    This resource is the MCP-native discovery mechanism: clients and orchestrators
+    can read it at connection time to understand the server's capabilities without
+    invoking any tool.  Each tool entry includes its description, ``use_when``
+    guidance (written to be embedding-searchable at scale), required inputs, and
+    category grouping.
+
+    Differs from ``list_tools`` in that it provides richer semantic metadata
+    designed for tool selection reasoning, not just name and schema.
+
+    Returns:
+        Markdown document grouped by tool category with descriptions and
+        ``use_when`` fields for all 13 registered tools.
+    """
+    registry = build_tool_registry(mcp.state)
+    return format_registry_docs(registry)
 
 
 # ---------------------------------------------------------------------------
