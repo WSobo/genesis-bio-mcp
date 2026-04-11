@@ -825,6 +825,10 @@ class TargetPrioritizationReport(BaseModel):
             "|---|---|---|",
         ]
 
+        # Local mirrors of scoring constants from target_prioritization.py — keep in sync.
+        _LINEAGE_MATCH_FACTOR = 1.2
+        _PUBCHEM_MIN_COMPOUNDS = 5
+
         # Build score breakdown
         da = self.disease_association
         cd = self.cancer_dependency
@@ -842,10 +846,19 @@ class TargetPrioritizationReport(BaseModel):
             else:
                 is_real = "DepMap" in cd.data_source
                 confidence = 1.0 if is_real else 0.7
-                dep_score = round(cd.fraction_dependent_lines * 2.0 * confidence, 2)
-                dep_note = f"{int(cd.fraction_dependent_lines * 100)}% dependent" + (
-                    "" if is_real else " (proxy, 0.7×)"
+                lineage_match = self.indication and any(
+                    self.indication.lower() in lin.lower() or lin.lower() in self.indication.lower()
+                    for lin in (cd.top_dependent_lineages or [])
                 )
+                lineage_factor = _LINEAGE_MATCH_FACTOR if lineage_match else 1.0
+                dep_score = round(
+                    min(cd.fraction_dependent_lines * 2.0 * confidence * lineage_factor, 2.0), 2
+                )
+                dep_note = f"{int(cd.fraction_dependent_lines * 100)}% dependent"
+                if not is_real:
+                    dep_note += " (proxy, 0.7×)"
+                if lineage_match:
+                    dep_note += f" (lineage match, {_LINEAGE_MATCH_FACTOR}×)"
             lines.append(f"| Cancer dependency | {dep_score} ({dep_note}) | 2.0 |")
         else:
             lines.append("| Cancer dependency | 0.0 (no data) | 2.0 |")
@@ -865,9 +878,12 @@ class TargetPrioritizationReport(BaseModel):
             else:
                 cp_score = 0.25
             cp_label = f"ChEMBL pChEMBL={bp:.1f}"
-        elif cp:
+        elif cp and cp.total_active_compounds >= _PUBCHEM_MIN_COMPOUNDS:
             cp_score = round(min(cp.total_active_compounds, 100) / 100 * 1.5, 2)
             cp_label = f"PubChem count={cp.total_active_compounds}"
+        elif cp:
+            cp_score = 0.0
+            cp_label = f"PubChem count={cp.total_active_compounds} (below tractability threshold)"
         else:
             cp_score = 0.0
             cp_label = "no data"

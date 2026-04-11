@@ -397,9 +397,19 @@ def _build_summary(
             )
         else:
             top = ", ".join(cancer_dep.top_dependent_lineages[:3])
+            lineage_match = indication and any(
+                indication.lower() in lin.lower() or lin.lower() in indication.lower()
+                for lin in (cancer_dep.top_dependent_lineages or [])
+            )
+            bonus_note = (
+                f" [DepMap score boosted {LINEAGE_MATCH_FACTOR}× — indication matches top lineage]"
+                if lineage_match
+                else ""
+            )
             parts.append(
                 f"DepMap CRISPR data show dependency in {pct}% of cancer lines"
                 + (f", highest in {top}" if top else "")
+                + bonus_note
                 + "."
             )
 
@@ -409,6 +419,16 @@ def _build_summary(
             f"GWAS Catalog links {gwas_ev.total_associations} variants near {symbol} "
             f"to '{indication}'-related traits (strongest p={p_str})."
         )
+        # Causal caveat: high GWAS signal without curated disease association may reflect
+        # linkage disequilibrium with a nearby causal gene rather than direct causality.
+        ot_score = disease_assoc.overall_score if disease_assoc else 0.0
+        if gwas_ev.total_associations >= 5 and ot_score < 0.2:
+            parts.append(
+                f"Caution: high GWAS hit count with low Open Targets association ({ot_score:.2f}) "
+                f"may indicate linkage disequilibrium with nearby causal variants rather than "
+                f"direct causal involvement of {symbol} in {indication}. "
+                f"Functional validation is recommended before treating this as target evidence."
+            )
 
     if chembl_compounds and chembl_compounds.best_pchembl is not None:
         bp = chembl_compounds.best_pchembl

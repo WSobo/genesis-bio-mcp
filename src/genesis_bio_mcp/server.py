@@ -494,6 +494,13 @@ async def prioritize_target(
         evidence summary, scoring breakdown table, and data gaps.
         With extended=True, also includes structure, interactors, drugs, and pathways.
     """
+    indication = indication.strip()
+    if not indication:
+        return (
+            "**Error:** `indication` is required and cannot be empty. "
+            "Please specify a therapeutic indication (e.g. 'melanoma', 'type 2 diabetes', "
+            "'non-small cell lung cancer')."
+        )
     result = await _prioritize_target(
         gene_symbol=gene_symbol,
         indication=indication,
@@ -535,11 +542,19 @@ async def compare_targets(
     Returns:
         Markdown table ranking all genes by priority score, with per-gene evidence summaries.
     """
+    indication = indication.strip()
+    if not indication:
+        return (
+            "**Error:** `indication` is required and cannot be empty. "
+            "Please specify a therapeutic indication (e.g. 'melanoma', 'non-small cell lung cancer')."
+        )
     if len(gene_symbols) < 2:
         return "**Error:** compare_targets requires at least 2 gene symbols."
+    dropped: list[str] = []
     if len(gene_symbols) > 5:
+        dropped = gene_symbols[5:]
         gene_symbols = gene_symbols[:5]
-        logger.warning("compare_targets: capped to 5 genes")
+        logger.warning("compare_targets: capped to 5 genes, dropped: %s", dropped)
 
     reports = await asyncio.gather(
         *[
@@ -599,7 +614,15 @@ async def compare_targets(
         )
 
     comparison = ComparisonReport(indication=indication, rows=rows)
-    return _fmt(comparison, response_format, "")
+    result = _fmt(comparison, response_format, "")
+    if dropped:
+        truncation_note = (
+            f"> **Note:** Input exceeded the 5-target limit. "
+            f"The following gene{'s were' if len(dropped) > 1 else ' was'} dropped: "
+            f"{', '.join(dropped)}. Re-run with a smaller set to include them.\n\n"
+        )
+        result = truncation_note + result
+    return result
 
 
 @mcp.tool(
