@@ -7,11 +7,15 @@ import json
 import logging
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import httpx
 
 from genesis_bio_mcp.config.trait_synonyms import filter_by_trait
 from genesis_bio_mcp.models import GwasEvidence, GwasHit
+
+if TYPE_CHECKING:
+    from genesis_bio_mcp.config.efo_resolver import EFOResolver, EFOTerm
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +54,12 @@ def _set_cached(cache: dict[str, dict], symbol: str, trait: str, result: GwasEvi
         logger.warning("Failed to write GWAS cache: %s", repr(exc))
 
 
-def _process_for_trait(raw: list[GwasHit], symbol: str, trait: str) -> GwasEvidence | None:
+def _process_for_trait(
+    raw: list[GwasHit],
+    symbol: str,
+    trait: str,
+    efo_terms: list[EFOTerm] | None = None,
+) -> GwasEvidence | None:
     """Dedup, trait-filter, and package raw hits into a GwasEvidence result."""
     # Deduplicate: same association can appear via both fetch paths
     seen: set[tuple] = set()
@@ -61,7 +70,7 @@ def _process_for_trait(raw: list[GwasHit], symbol: str, trait: str) -> GwasEvide
             seen.add(key)
             unique.append(h)
 
-    filtered = filter_by_trait(unique, trait)
+    filtered = filter_by_trait(unique, trait, efo_terms=efo_terms)
     if not filtered:
         return None
 
@@ -81,9 +90,18 @@ def _process_for_trait(raw: list[GwasHit], symbol: str, trait: str) -> GwasEvide
     )
 
 
+async def _resolve_empty() -> list:
+    return []
+
+
 class GwasClient:
-    def __init__(self, client: httpx.AsyncClient) -> None:
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        efo_resolver: EFOResolver | None = None,
+    ) -> None:
         self._client = client
+        self._efo_resolver = efo_resolver
         self._disk_cache: dict[str, dict] = _load_gwas_cache()
         # Session-level gene cache: raw associations per gene symbol.
         # Avoids re-fetching the same gene for different trait queries
@@ -96,11 +114,18 @@ class GwasClient:
         """Return GWAS Catalog hits for a gene–trait pair."""
         symbol = gene_symbol.strip().upper()
 
-        # Session cache: fetch raw associations once per gene, filter per trait
         if symbol not in self._gene_cache:
-            self._gene_cache[symbol] = await self._fetch_all(symbol, ncbi_gene_id)
-
-        raw = self._gene_cache[symbol]
+            # Run gene fetch and EFO resolution concurrently.
+            # EFO adds ~0ms (cached) or ~200ms (cold), gene fetch takes 2–15s —
+            # so EFO resolution is always done before we need it.
+            raw, efo_terms = await asyncio.gather(
+                self._fetch_all(symbol, ncbi_gene_id),
+                self._efo_resolver.resolve(trait) if self._efo_resolver else _resolve_empty(),
+            )
+            self._gene_cache[symbol] = raw
+        else:
+            raw = self._gene_cache[symbol]
+            efo_terms = await self._efo_resolver.resolve(trait) if self._efo_resolver else []
 
         if not raw:
             # Disk cache fallback — timeouts are infrastructure failures,
@@ -111,7 +136,7 @@ class GwasClient:
                 return cached
             return None
 
-        result = _process_for_trait(raw, symbol, trait)
+        result = _process_for_trait(raw, symbol, trait, efo_terms=efo_terms)
         if result:
             _set_cached(self._disk_cache, symbol, trait, result)
         else:
@@ -210,7 +235,6 @@ class GwasClient:
         study URLs and inject the result back into the raw assoc dicts so _parse_association
         can extract studyAccession and diseaseTrait.
         """
-        # Collect unique study URLs that need resolution
         pending: dict[str, None] = {}  # ordered set
         for assoc in assocs:
             if assoc.get("study"):
@@ -227,7 +251,6 @@ class GwasClient:
             except Exception:
                 return link, {}
 
-        # Fan out study fetches concurrently
         fetched = await asyncio.gather(*[_fetch_study(link) for link in pending])
         study_cache = dict(fetched)
 
@@ -282,11 +305,13 @@ def _parse_association(assoc: dict) -> GwasHit | None:
         efo_traits = assoc.get("efoTraits", [])
         if efo_traits:
             trait = efo_traits[0].get("trait", "")
+            efo_uri = efo_traits[0].get("uri") or None
         else:
             # Fall back to study.diseaseTrait.trait (populated after _resolve_study_data)
             trait = assoc.get("study", {}).get("diseaseTrait", {}).get("trait", "") or assoc.get(
                 "traitName", ""
             )
+            efo_uri = None
 
         # Study info — may be embedded directly or injected by _resolve_study_data
         study = assoc.get("study", {})
@@ -309,6 +334,7 @@ def _parse_association(assoc: dict) -> GwasHit | None:
         return GwasHit(
             study_accession=study_accession,
             trait=trait,
+            efo_uri=efo_uri,
             mapped_gene=mapped_gene,
             risk_allele=risk_allele,
             p_value=p_value,

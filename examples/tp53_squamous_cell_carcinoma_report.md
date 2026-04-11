@@ -31,12 +31,12 @@ TP53 shows strong Open Targets association with squamous cell carcinoma (score: 
 ## API Latency
 | API | Latency (s) |
 |---|---|
-| gwas | 4.45 ← slowest |
-| chembl | 1.96 |
-| pubchem | 1.83 |
-| open_targets | 0.69 |
-| depmap | 0.54 |
-| uniprot | 0.26 |
+| gwas | 2.48 ← slowest |
+| pubchem | 1.99 |
+| chembl | 0.97 |
+| open_targets | 0.79 |
+| depmap | 0.62 |
+| uniprot | 0.30 |
 
 ---
 _Resolved: TP53 | NCBI Gene: 7157 | UniProt: P04637_

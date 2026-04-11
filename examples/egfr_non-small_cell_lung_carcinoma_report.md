@@ -31,10 +31,10 @@ EGFR shows strong Open Targets association with non-small cell lung carcinoma (s
 ## API Latency
 | API | Latency (s) |
 |---|---|
-| pubchem | 1.96 ← slowest |
-| gwas | 1.57 |
-| chembl | 1.33 |
-| open_targets | 0.52 |
+| chembl | 2.35 ← slowest |
+| pubchem | 1.93 |
+| gwas | 1.07 |
+| open_targets | 0.54 |
 | depmap | 0.37 |
 | uniprot | 0.20 |
 

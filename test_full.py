@@ -27,6 +27,7 @@ from genesis_bio_mcp.clients.gwas import GwasClient
 from genesis_bio_mcp.clients.open_targets import OpenTargetsClient
 from genesis_bio_mcp.clients.pubchem import PubChemClient
 from genesis_bio_mcp.clients.uniprot import UniProtClient
+from genesis_bio_mcp.config.efo_resolver import EFOResolver
 from genesis_bio_mcp.tools.target_prioritization import prioritize_target
 
 HEADERS = {
@@ -166,7 +167,7 @@ async def run(cases: list[tuple[str, str]]) -> None:
             uniprot=UniProtClient(http),
             open_targets=OpenTargetsClient(http),
             depmap=DepMapClient(http, cache),
-            gwas=GwasClient(http),
+            gwas=GwasClient(http, efo_resolver=EFOResolver(http)),
             pubchem=PubChemClient(http),
             chembl=ChEMBLClient(http),
         )

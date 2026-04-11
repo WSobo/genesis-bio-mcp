@@ -31,11 +31,11 @@ PCSK9 shows strong Open Targets association with hypercholesterolemia (score: 0.
 ## API Latency
 | API | Latency (s) |
 |---|---|
-| pubchem | 2.02 ← slowest |
-| gwas | 1.19 |
-| chembl | 0.65 |
-| open_targets | 0.52 |
-| depmap | 0.37 |
+| gwas | 15.02 ← slowest |
+| chembl | 2.84 |
+| pubchem | 1.94 |
+| open_targets | 0.73 |
+| depmap | 0.53 |
 | uniprot | 0.18 |
 
 ---

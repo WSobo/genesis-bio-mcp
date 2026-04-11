@@ -1,13 +1,11 @@
-"""GWAS trait synonym mapping for query–association matching.
+"""GWAS trait synonym mapping — fallback for EFO-backed matching.
 
-Each key is the canonical indication string passed to the GWAS client.
-Values are the trait label substrings that GWAS Catalog uses for that disease
-(GWAS Catalog free-text trait labels are inconsistent; EFO ID-based matching
-is the long-term upgrade path once EFO term lookup is wired in).
+Primary matching uses EFO ontology terms resolved via OLS4 (see efo_resolver.py).
+This dict is the fallback when OLS4 is unavailable or returns nothing useful.
 
-Maintainers: add synonyms here when a new indication returns a GWAS gap despite
-known associations existing in the Catalog. Use GWAS Catalog's Trait search
-(https://www.ebi.ac.uk/gwas/search) to find the exact label variants.
+Each key is a canonical indication string. Values are GWAS Catalog free-text
+label substrings known to cover that disease. Add entries here only when OLS4
+consistently fails to resolve an indication that has real GWAS signal.
 
 Design notes:
 - Matching is case-insensitive substring: "waist" catches "waist circumference"
@@ -22,10 +20,16 @@ from __future__ import annotations
 
 import unicodedata
 
+# Avoid circular import at type-check time
+from typing import TYPE_CHECKING
+
 from genesis_bio_mcp.models import GwasHit
 
+if TYPE_CHECKING:
+    from genesis_bio_mcp.config.efo_resolver import EFOTerm
+
 # ---------------------------------------------------------------------------
-# Canonical indication → GWAS Catalog trait label substrings
+# Fallback: canonical indication → GWAS Catalog trait label substrings
 # ---------------------------------------------------------------------------
 
 TRAIT_SYNONYMS: dict[str, list[str]] = {
@@ -87,7 +91,7 @@ TRAIT_SYNONYMS: dict[str, list[str]] = {
 
 
 # ---------------------------------------------------------------------------
-# Matching helper
+# Matching helpers
 # ---------------------------------------------------------------------------
 
 
@@ -96,18 +100,43 @@ def _normalize(text: str) -> str:
     return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii").lower()
 
 
-def filter_by_trait(hits: list[GwasHit], trait: str) -> list[GwasHit]:
-    """Return hits whose trait label matches the query indication.
+def filter_by_trait(
+    hits: list[GwasHit],
+    trait: str,
+    efo_terms: list[EFOTerm] | None = None,
+) -> list[GwasHit]:
+    """Return hits whose trait matches the query indication.
 
-    Falls back to direct substring match when the indication has no synonym entry,
-    so arbitrary indications still work (just without synonym expansion).
+    Matching strategy (in priority order):
+    1. EFO URI exact match — precise, ontology-backed (gene-ID path only).
+    2. String match against EFO labels + synonyms from OLS4 resolution.
+    3. Fallback: string match against hardcoded TRAIT_SYNONYMS dict.
+
+    The fallback ensures arbitrary indications still work even when OLS4 is
+    unavailable, at the cost of requiring manual synonym maintenance.
     """
     trait_norm = _normalize(trait)
-    synonyms = TRAIT_SYNONYMS.get(trait_norm, [])
-    match_terms = [trait_norm] + [_normalize(s) for s in synonyms]
 
-    def _matches(hit_trait: str) -> bool:
-        ht = _normalize(hit_trait)
-        return any(term in ht for term in match_terms)
+    # Build EFO URI set for precise matching (populated when efo_terms is provided)
+    efo_uris: set[str] = set()
+    match_strings: set[str] = {trait_norm}
 
-    return [h for h in hits if _matches(h.trait)]
+    if efo_terms:
+        for t in efo_terms:
+            if t.uri:
+                efo_uris.add(t.uri)
+            match_strings.add(_normalize(t.label))
+            match_strings.update(_normalize(s) for s in t.synonyms)
+    else:
+        # No EFO data — fall back to hardcoded synonyms
+        match_strings.update(_normalize(s) for s in TRAIT_SYNONYMS.get(trait_norm, []))
+
+    def _matches(hit: GwasHit) -> bool:
+        # Precise: EFO URI match (gene-ID path associations embed efoTraits[].uri)
+        if hit.efo_uri and hit.efo_uri in efo_uris:
+            return True
+        # Broader: label/synonym substring match (covers SNP path free-text labels)
+        ht = _normalize(hit.trait)
+        return any(term in ht for term in match_strings)
+
+    return [h for h in hits if _matches(h)]

@@ -31,12 +31,12 @@ ERBB2 shows strong Open Targets association with breast cancer (score: 0.63, n=2
 ## API Latency
 | API | Latency (s) |
 |---|---|
-| pubchem | 1.75 ← slowest |
-| gwas | 1.52 |
-| chembl | 0.81 |
-| open_targets | 0.52 |
-| depmap | 0.34 |
-| uniprot | 0.18 |
+| gwas | 14.43 ← slowest |
+| pubchem | 1.80 |
+| chembl | 0.85 |
+| open_targets | 0.51 |
+| depmap | 0.35 |
+| uniprot | 0.19 |
 
 ---
 _Resolved: ERBB2 | NCBI Gene: 2064 | UniProt: P04626_

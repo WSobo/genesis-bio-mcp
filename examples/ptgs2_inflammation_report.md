@@ -31,12 +31,12 @@ PTGS2 shows strong Open Targets association with inflammation (score: 0.60, n=2 
 ## API Latency
 | API | Latency (s) |
 |---|---|
-| gwas | 15.00 ← slowest |
-| pubchem | 1.93 |
-| chembl | 1.86 |
-| open_targets | 0.65 |
-| depmap | 0.48 |
-| uniprot | 0.17 |
+| gwas | 6.16 ← slowest |
+| chembl | 2.73 |
+| pubchem | 2.40 |
+| open_targets | 0.73 |
+| depmap | 0.55 |
+| uniprot | 0.40 |
 
 ---
 _Resolved: PTGS2 | NCBI Gene: 5743 | UniProt: P35354_

@@ -280,6 +280,10 @@ class GwasHit(BaseModel):
     sample_size: int | None = Field(None, description="Total discovery sample size")
     population: str | None = Field(None, description="Ancestry/population of study cohort")
     pubmed_id: str | None = Field(None, description="PubMed ID of the primary publication")
+    efo_uri: str | None = Field(
+        None,
+        description="EFO ontology URI, e.g. 'http://www.ebi.ac.uk/efo/EFO_0001073' (gene-ID path only)",
+    )
 
 
 class GwasEvidence(BaseModel):

@@ -182,7 +182,8 @@
         "beta_or_or": 0.07746,
         "sample_size": null,
         "population": "72,866 Japanese ancestry individuals",
-        "pubmed_id": null
+        "pubmed_id": null,
+        "efo_uri": null
       },
       {
         "study_accession": "",
@@ -193,7 +194,8 @@
         "beta_or_or": 0.194,
         "sample_size": null,
         "population": "38,000 South Asian ancestry individuals",
-        "pubmed_id": null
+        "pubmed_id": null,
+        "efo_uri": null
       },
       {
         "study_accession": "",
@@ -204,7 +206,8 @@
         "beta_or_or": 3.59404,
         "sample_size": null,
         "population": "9,720 African American individuals, 17,373 Hispanic/Latino individuals, 2,316 Asian ancestry individ",
-        "pubmed_id": null
+        "pubmed_id": null,
+        "efo_uri": null
       },
       {
         "study_accession": "",
@@ -215,7 +218,8 @@
         "beta_or_or": 3.266727,
         "sample_size": null,
         "population": "10,137 African American individuals, 17,802 Hispanic/Latino individuals, 2,387 Asian ancestry indivi",
-        "pubmed_id": null
+        "pubmed_id": null,
+        "efo_uri": null
       }
     ],
     "strongest_p_value": 4e-20
@@ -388,10 +392,10 @@
   ],
   "api_latency_s": {
     "uniprot": 0.18,
-    "open_targets": 0.52,
-    "depmap": 0.37,
-    "gwas": 1.19,
-    "pubchem": 2.02,
-    "chembl": 0.65
+    "open_targets": 0.73,
+    "depmap": 0.53,
+    "gwas": 15.02,
+    "pubchem": 1.94,
+    "chembl": 2.84
   }
 }
