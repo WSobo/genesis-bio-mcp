@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import time
 import unicodedata
+from pathlib import Path
 
 import httpx
 
@@ -13,6 +16,8 @@ from genesis_bio_mcp.models import GwasEvidence, GwasHit
 logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://www.ebi.ac.uk/gwas/rest/api"
+_CACHE_PATH = Path("data/gwas_cache.json")
+_CACHE_TTL_SECS = 86400  # 24 hours
 
 
 def _normalize(text: str) -> str:
@@ -20,9 +25,40 @@ def _normalize(text: str) -> str:
     return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii").lower()
 
 
+def _load_gwas_cache() -> dict[str, dict]:
+    try:
+        if _CACHE_PATH.exists():
+            return json.loads(_CACHE_PATH.read_text())
+    except Exception as exc:
+        logger.warning("Failed to load GWAS cache: %s", repr(exc))
+    return {}
+
+
+def _get_cached(cache: dict[str, dict], symbol: str, trait: str) -> GwasEvidence | None:
+    entry = cache.get(f"{symbol}:{trait}")
+    if not entry:
+        return None
+    if time.time() - entry.get("fetched_at", 0) > _CACHE_TTL_SECS:
+        return None
+    try:
+        return GwasEvidence.model_validate(entry["result"])
+    except Exception:
+        return None
+
+
+def _set_cached(cache: dict[str, dict], symbol: str, trait: str, result: GwasEvidence) -> None:
+    cache[f"{symbol}:{trait}"] = {"result": result.model_dump(), "fetched_at": time.time()}
+    try:
+        _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _CACHE_PATH.write_text(json.dumps(cache, indent=2, default=str))
+    except Exception as exc:
+        logger.warning("Failed to write GWAS cache: %s", repr(exc))
+
+
 class GwasClient:
     def __init__(self, client: httpx.AsyncClient) -> None:
         self._client = client
+        self._cache: dict[str, dict] = _load_gwas_cache()
 
     async def get_evidence(
         self, gene_symbol: str, trait: str, ncbi_gene_id: str | None = None
@@ -45,7 +81,13 @@ class GwasClient:
             except TimeoutError:
                 logger.warning("GWAS SNP path timed out for %s, returning gap", symbol)
 
+        # Both fetch paths returned nothing — check cache before surfacing a gap.
+        # Timeouts are infrastructure failures, not evidence of absent GWAS signal.
         if not associations:
+            cached = _get_cached(self._cache, symbol, trait)
+            if cached is not None:
+                logger.info("GWAS live fetch empty for %s/%s, serving cached result", symbol, trait)
+                return cached
             return None
 
         # Deduplicate: same association can appear multiple times (multiple SNPs → same locus)
@@ -74,13 +116,15 @@ class GwasClient:
         if not filtered:
             return None
 
-        return GwasEvidence(
+        result = GwasEvidence(
             gene_symbol=symbol,
             trait_query=trait,
             total_associations=len(filtered),
             associations=filtered[:50],
             strongest_p_value=filtered[0].p_value if filtered else None,
         )
+        _set_cached(self._cache, symbol, trait, result)
+        return result
 
     async def _fetch_by_gene_symbol(self, symbol: str) -> list[GwasHit]:
         url = f"{_BASE_URL}/singleNucleotidePolymorphisms/search/findByGene"
