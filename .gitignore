@@ -14,3 +14,4 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 data/depmap_cache.csv
+.claude/worktrees/
