@@ -70,12 +70,23 @@ class EFOResolver:
 
     Call path: session cache → disk cache → OLS4 API.
     Never raises — returns [] on any failure so callers fall back to synonyms.
+
+    Args:
+        client: Shared httpx.AsyncClient from the server lifespan.
+        cache_path: Override the disk cache location. Pass ``None`` to disable
+            disk caching entirely (useful for tests or ephemeral deployments).
     """
 
-    def __init__(self, client: httpx.AsyncClient) -> None:
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        *,
+        cache_path: Path | None = _EFO_CACHE_PATH,
+    ) -> None:
         self._client = client
+        self._cache_path = cache_path
         self._session_cache: dict[str, list[EFOTerm]] = {}
-        self._disk_cache: dict[str, dict] = _load_efo_cache()
+        self._disk_cache: dict[str, dict] = _load_efo_cache() if cache_path else {}
 
     async def resolve(self, trait: str) -> list[EFOTerm]:
         """Return up to 5 best-matching EFO terms for the trait query."""
@@ -129,12 +140,14 @@ class EFOResolver:
             return []
 
     def _write_disk_cache(self, key: str, terms: list[EFOTerm]) -> None:
+        if not self._cache_path:
+            return
         self._disk_cache[key] = {
             "terms": [{"uri": t.uri, "label": t.label, "synonyms": t.synonyms} for t in terms],
             "fetched_at": time.time(),
         }
         try:
-            _EFO_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            _EFO_CACHE_PATH.write_text(json.dumps(self._disk_cache, indent=2, default=str))
+            self._cache_path.parent.mkdir(parents=True, exist_ok=True)
+            self._cache_path.write_text(json.dumps(self._disk_cache, indent=2, default=str))
         except Exception as exc:
             logger.warning("Failed to write EFO cache: %s", repr(exc))

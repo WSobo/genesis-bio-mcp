@@ -122,7 +122,12 @@ class GwasClient:
                 self._fetch_all(symbol, ncbi_gene_id),
                 self._efo_resolver.resolve(trait) if self._efo_resolver else _resolve_empty(),
             )
-            self._gene_cache[symbol] = raw
+            # Only cache successful fetches. A timeout returns [] which we don't
+            # cache — preserves the ability to retry on a subsequent trait query
+            # for the same gene, and avoids poisoning the cache with transient
+            # infrastructure failures (GWAS API is the slowest dependency).
+            if raw:
+                self._gene_cache[symbol] = raw
         else:
             raw = self._gene_cache[symbol]
             efo_terms = await self._efo_resolver.resolve(trait) if self._efo_resolver else []
