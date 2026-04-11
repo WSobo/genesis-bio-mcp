@@ -10,7 +10,16 @@
     ],
     "errors": [],
     "depmap_real": true,
-    "elapsed_s": 14.8
+    "elapsed_s": 4.4,
+    "api_latency_s": {
+      "uniprot": 0.33,
+      "open_targets": 0.71,
+      "depmap": 0.52,
+      "gwas": 3.2,
+      "pubchem": 3.36,
+      "chembl": 2.14
+    },
+    "slowest_api": "pubchem"
   },
   {
     "gene_input": "EGFR",
@@ -23,7 +32,16 @@
     ],
     "errors": [],
     "depmap_real": true,
-    "elapsed_s": 47.1
+    "elapsed_s": 3.3,
+    "api_latency_s": {
+      "uniprot": 0.19,
+      "open_targets": 0.52,
+      "depmap": 0.36,
+      "gwas": 1.47,
+      "pubchem": 2.99,
+      "chembl": 2.44
+    },
+    "slowest_api": "pubchem"
   },
   {
     "gene_input": "KRAS",
@@ -37,7 +55,16 @@
     ],
     "errors": [],
     "depmap_real": true,
-    "elapsed_s": 17.3
+    "elapsed_s": 2.0,
+    "api_latency_s": {
+      "uniprot": 0.24,
+      "open_targets": 0.52,
+      "depmap": 0.37,
+      "gwas": 1.24,
+      "pubchem": 1.65,
+      "chembl": 0.79
+    },
+    "slowest_api": "pubchem"
   },
   {
     "gene_input": "HER2",
@@ -51,42 +78,80 @@
     ],
     "errors": [],
     "depmap_real": true,
-    "elapsed_s": 48.7
+    "elapsed_s": 3.1,
+    "api_latency_s": {
+      "uniprot": 0.2,
+      "open_targets": 0.54,
+      "depmap": 0.36,
+      "gwas": 2.76,
+      "pubchem": 1.68,
+      "chembl": 1.16
+    },
+    "slowest_api": "gwas"
   },
   {
     "gene_input": "PCSK9",
     "resolved": "PCSK9",
     "indication": "hypercholesterolemia",
-    "score": 9.05,
+    "score": 8.65,
     "tier": "High",
     "data_gaps": [
       "pubchem"
     ],
     "errors": [],
     "depmap_real": true,
-    "elapsed_s": 16.7
+    "elapsed_s": 2.2,
+    "api_latency_s": {
+      "uniprot": 0.19,
+      "open_targets": 0.54,
+      "depmap": 0.37,
+      "gwas": 1.68,
+      "pubchem": 1.92,
+      "chembl": 1.47
+    },
+    "slowest_api": "pubchem"
   },
   {
     "gene_input": "FTO",
     "resolved": "FTO",
     "indication": "obesity",
-    "score": 5.31,
+    "score": 4.31,
     "tier": "Medium",
-    "data_gaps": [],
+    "data_gaps": [
+      "gwas"
+    ],
     "errors": [],
     "depmap_real": true,
-    "elapsed_s": 48.4
+    "elapsed_s": 14.5,
+    "api_latency_s": {
+      "uniprot": 0.17,
+      "open_targets": 0.54,
+      "depmap": 0.37,
+      "gwas": 14.19,
+      "pubchem": 1.0,
+      "chembl": 0.6
+    },
+    "slowest_api": "gwas"
   },
   {
     "gene_input": "TNF",
     "resolved": "TNF",
     "indication": "rheumatoid arthritis",
-    "score": 7.1,
-    "tier": "High",
+    "score": 6.9,
+    "tier": "Medium",
     "data_gaps": [],
     "errors": [],
     "depmap_real": true,
-    "elapsed_s": 18.5
+    "elapsed_s": 16.1,
+    "api_latency_s": {
+      "uniprot": 0.17,
+      "open_targets": 0.65,
+      "depmap": 0.49,
+      "gwas": 15.01,
+      "pubchem": 2.23,
+      "chembl": 1.69
+    },
+    "slowest_api": "gwas"
   },
   {
     "gene_input": "PTGS2",
@@ -100,7 +165,16 @@
     ],
     "errors": [],
     "depmap_real": true,
-    "elapsed_s": 50.3
+    "elapsed_s": 16.2,
+    "api_latency_s": {
+      "uniprot": 0.18,
+      "open_targets": 0.82,
+      "depmap": 0.65,
+      "gwas": 15.0,
+      "pubchem": 2.26,
+      "chembl": 1.83
+    },
+    "slowest_api": "gwas"
   },
   {
     "gene_input": "TP53",
@@ -114,7 +188,16 @@
     ],
     "errors": [],
     "depmap_real": true,
-    "elapsed_s": 18.7
+    "elapsed_s": 6.3,
+    "api_latency_s": {
+      "uniprot": 0.25,
+      "open_targets": 0.72,
+      "depmap": 0.68,
+      "gwas": 5.05,
+      "pubchem": 2.1,
+      "chembl": 1.4
+    },
+    "slowest_api": "gwas"
   },
   {
     "gene_input": "CD274",
@@ -128,7 +211,16 @@
     ],
     "errors": [],
     "depmap_real": true,
-    "elapsed_s": 47.3
+    "elapsed_s": 2.3,
+    "api_latency_s": {
+      "uniprot": 0.17,
+      "open_targets": 0.52,
+      "depmap": 0.35,
+      "gwas": 1.2,
+      "pubchem": 1.7,
+      "chembl": 1.26
+    },
+    "slowest_api": "pubchem"
   },
   {
     "gene_input": "p53",
@@ -142,7 +234,16 @@
     ],
     "errors": [],
     "depmap_real": true,
-    "elapsed_s": 36.2
+    "elapsed_s": 2.0,
+    "api_latency_s": {
+      "uniprot": 0.0,
+      "open_targets": 0.52,
+      "depmap": 0.35,
+      "gwas": 0.0,
+      "pubchem": 1.65,
+      "chembl": 0.82
+    },
+    "slowest_api": "pubchem"
   },
   {
     "gene_input": "COX2",
@@ -156,6 +257,15 @@
     ],
     "errors": [],
     "depmap_real": true,
-    "elapsed_s": 30.9
+    "elapsed_s": 2.3,
+    "api_latency_s": {
+      "uniprot": 0.0,
+      "open_targets": 0.52,
+      "depmap": 0.35,
+      "gwas": 0.0,
+      "pubchem": 1.89,
+      "chembl": 1.57
+    },
+    "slowest_api": "pubchem"
   }
 ]

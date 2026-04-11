@@ -28,5 +28,15 @@ BRAF shows strong Open Targets association with melanoma (score: 0.82, n=5 evide
 **Data coverage:** 83% of core sources returned data
 **Score range:** 6.5–7.8/10 (uncertainty from 17% missing sources)
 
+## API Latency
+| API | Latency (s) |
+|---|---|
+| pubchem | 3.36 ← slowest |
+| gwas | 3.20 |
+| chembl | 2.14 |
+| open_targets | 0.71 |
+| depmap | 0.52 |
+| uniprot | 0.33 |
+
 ---
 _Resolved: BRAF | NCBI Gene: 673 | UniProt: P15056_

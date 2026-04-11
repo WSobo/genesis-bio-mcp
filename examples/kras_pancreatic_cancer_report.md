@@ -28,5 +28,15 @@ KRAS shows strong Open Targets association with pancreatic cancer (score: 0.60, 
 **Data coverage:** 67% of core sources returned data
 **Score range:** 4.1–5.8/10 (uncertainty from 33% missing sources)
 
+## API Latency
+| API | Latency (s) |
+|---|---|
+| pubchem | 1.65 ← slowest |
+| gwas | 1.24 |
+| chembl | 0.79 |
+| open_targets | 0.52 |
+| depmap | 0.37 |
+| uniprot | 0.24 |
+
 ---
 _Resolved: KRAS | NCBI Gene: 3845 | UniProt: P01116_

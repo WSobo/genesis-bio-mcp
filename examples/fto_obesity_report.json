@@ -126,69 +126,7 @@
     "cell_lines": [],
     "data_source": "DepMap Chronos Combined (4/1208 cell lines dependent)"
   },
-  "gwas_evidence": {
-    "gene_symbol": "FTO",
-    "trait_query": "obesity",
-    "total_associations": 5,
-    "associations": [
-      {
-        "study_accession": "",
-        "trait": "Body mass index and bone mineral density (pleiotropy)",
-        "mapped_gene": "",
-        "risk_allele": "rs17817712-G",
-        "p_value": 1e-121,
-        "beta_or_or": 0.142,
-        "sample_size": null,
-        "population": "14,489 individuals",
-        "pubmed_id": null
-      },
-      {
-        "study_accession": "",
-        "trait": "Body mass index",
-        "mapped_gene": "FTO",
-        "risk_allele": "rs9939609-A",
-        "p_value": 4e-51,
-        "beta_or_or": 0.33,
-        "sample_size": null,
-        "population": "32,387 European ancestry individuals",
-        "pubmed_id": null
-      },
-      {
-        "study_accession": "",
-        "trait": "BMI at 8 years old",
-        "mapped_gene": "",
-        "risk_allele": "rs17817288-A",
-        "p_value": 1e-12,
-        "beta_or_or": 0.0952937,
-        "sample_size": null,
-        "population": "14,280 European ancestry individuals",
-        "pubmed_id": null
-      },
-      {
-        "study_accession": "",
-        "trait": "Body mass index",
-        "mapped_gene": "FTO",
-        "risk_allele": "rs10680802-CAG",
-        "p_value": 1e-06,
-        "beta_or_or": 0.0355,
-        "sample_size": null,
-        "population": "1,249 whole genome sequenced European ancestry individuals, 3,538 whole genome sequenced individuals",
-        "pubmed_id": null
-      },
-      {
-        "study_accession": "",
-        "trait": "Body mass index",
-        "mapped_gene": "FTO",
-        "risk_allele": "rs17817712-?",
-        "p_value": 1e-06,
-        "beta_or_or": 0.348,
-        "sample_size": null,
-        "population": "8,832 Korean ancestry individuals",
-        "pubmed_id": null
-      }
-    ],
-    "strongest_p_value": 1e-121
-  },
+  "gwas_evidence": null,
   "compounds": {
     "gene_symbol": "FTO",
     "total_active_compounds": 1,
@@ -357,12 +295,25 @@
   "protein_interactome": null,
   "drug_history": null,
   "pathway_context": null,
-  "priority_score": 5.31,
+  "priority_score": 4.31,
   "priority_tier": "Medium",
-  "evidence_summary": "FTO shows strong Open Targets association with obesity (score: 0.60, n=4 evidence items). DepMap CRISPR data show dependency in 0% of cancer lines. GWAS Catalog links 5 variants near FTO to 'obesity'-related traits (strongest p=1.00e-121). ChEMBL reports 92 compounds with potency data against FTO; best IC50 \u2248 60.3 nM (lead-quality, pChEMBL=7.2).",
-  "data_gaps": [],
+  "evidence_summary": "FTO shows strong Open Targets association with obesity (score: 0.60, n=4 evidence items). DepMap CRISPR data show dependency in 0% of cancer lines. ChEMBL reports 92 compounds with potency data against FTO; best IC50 \u2248 60.3 nM (lead-quality, pChEMBL=7.2).",
+  "data_gaps": [
+    "gwas"
+  ],
   "errors": {},
-  "data_coverage_pct": 100.0,
+  "data_coverage_pct": 83.3,
   "proxy_data_flags": {},
-  "score_confidence_interval": null
+  "score_confidence_interval": [
+    3.95,
+    4.67
+  ],
+  "api_latency_s": {
+    "uniprot": 0.17,
+    "open_targets": 0.54,
+    "depmap": 0.37,
+    "gwas": 14.19,
+    "pubchem": 1.0,
+    "chembl": 0.6
+  }
 }

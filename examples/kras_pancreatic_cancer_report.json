@@ -474,5 +474,13 @@
   "score_confidence_interval": [
     4.12,
     5.76
-  ]
+  ],
+  "api_latency_s": {
+    "uniprot": 0.24,
+    "open_targets": 0.52,
+    "depmap": 0.37,
+    "gwas": 1.24,
+    "pubchem": 1.65,
+    "chembl": 0.79
+  }
 }

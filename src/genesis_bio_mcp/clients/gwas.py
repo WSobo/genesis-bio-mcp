@@ -55,10 +55,45 @@ def _set_cached(cache: dict[str, dict], symbol: str, trait: str, result: GwasEvi
         logger.warning("Failed to write GWAS cache: %s", repr(exc))
 
 
+def _process_for_trait(raw: list[GwasHit], symbol: str, trait: str) -> GwasEvidence | None:
+    """Dedup, trait-filter, and package raw hits into a GwasEvidence result."""
+    # Deduplicate: same association can appear via both fetch paths
+    seen: set[tuple] = set()
+    unique: list[GwasHit] = []
+    for h in raw:
+        key = (h.risk_allele, h.study_accession, h.p_value)
+        if key not in seen:
+            seen.add(key)
+            unique.append(h)
+
+    filtered = _filter_by_trait(unique, trait)
+    if not filtered:
+        return None
+
+    # Remove zero p-value artifacts and sort
+    filtered = [a for a in filtered if a.p_value and a.p_value > 0]
+    filtered.sort(key=lambda h: h.p_value)
+
+    if not filtered:
+        return None
+
+    return GwasEvidence(
+        gene_symbol=symbol,
+        trait_query=trait,
+        total_associations=len(filtered),
+        associations=filtered[:50],
+        strongest_p_value=filtered[0].p_value if filtered else None,
+    )
+
+
 class GwasClient:
     def __init__(self, client: httpx.AsyncClient) -> None:
         self._client = client
-        self._cache: dict[str, dict] = _load_gwas_cache()
+        self._disk_cache: dict[str, dict] = _load_gwas_cache()
+        # Session-level gene cache: raw associations per gene symbol.
+        # Avoids re-fetching the same gene for different trait queries
+        # (e.g. PTGS2 for "inflammation" then COX2→PTGS2 for "pain").
+        self._gene_cache: dict[str, list[GwasHit]] = {}
 
     async def get_evidence(
         self, gene_symbol: str, trait: str, ncbi_gene_id: str | None = None
@@ -66,65 +101,64 @@ class GwasClient:
         """Return GWAS Catalog hits for a gene–trait pair."""
         symbol = gene_symbol.strip().upper()
 
-        # Primary: gene-ID path returns fully-embedded study + EFO traits
-        associations: list[GwasHit] = []
-        if ncbi_gene_id:
-            associations = await self._fetch_by_gene_id(ncbi_gene_id)
+        # Session cache: fetch raw associations once per gene, filter per trait
+        if symbol not in self._gene_cache:
+            self._gene_cache[symbol] = await self._fetch_all(symbol, ncbi_gene_id)
 
-        # Fallback: SNP path — cap at 5s so a slow GWAS response doesn't block the
-        # pipeline; return whatever the association fetch already has if this times out.
-        if not associations:
-            try:
-                associations = await asyncio.wait_for(
-                    self._fetch_by_gene_symbol(symbol), timeout=10.0
-                )
-            except TimeoutError:
-                logger.warning("GWAS SNP path timed out for %s, returning gap", symbol)
+        raw = self._gene_cache[symbol]
 
-        # Both fetch paths returned nothing — check cache before surfacing a gap.
-        # Timeouts are infrastructure failures, not evidence of absent GWAS signal.
-        if not associations:
-            cached = _get_cached(self._cache, symbol, trait)
+        if not raw:
+            # Disk cache fallback — timeouts are infrastructure failures,
+            # not evidence of absent GWAS signal.
+            cached = _get_cached(self._disk_cache, symbol, trait)
             if cached is not None:
                 logger.info("GWAS live fetch empty for %s/%s, serving cached result", symbol, trait)
                 return cached
             return None
 
-        # Deduplicate: same association can appear multiple times (multiple SNPs → same locus)
-        seen: set[tuple] = set()
-        unique: list[GwasHit] = []
-        for h in associations:
-            key = (h.risk_allele, h.study_accession, h.p_value)
-            if key not in seen:
-                seen.add(key)
-                unique.append(h)
-        associations = unique
-
-        filtered = _filter_by_trait(associations, trait)
-        if not filtered:
+        result = _process_for_trait(raw, symbol, trait)
+        if result:
+            _set_cached(self._disk_cache, symbol, trait, result)
+        else:
             logger.info(
                 "GWAS: no '%s' trait hits for %s — returning None (data gap)",
                 trait,
                 symbol,
             )
-            return None
-
-        # Remove zero p-value artifacts and sort
-        filtered = [a for a in filtered if a.p_value and a.p_value > 0]
-        filtered.sort(key=lambda h: h.p_value)
-
-        if not filtered:
-            return None
-
-        result = GwasEvidence(
-            gene_symbol=symbol,
-            trait_query=trait,
-            total_associations=len(filtered),
-            associations=filtered[:50],
-            strongest_p_value=filtered[0].p_value if filtered else None,
-        )
-        _set_cached(self._cache, symbol, trait, result)
         return result
+
+    async def _fetch_all(self, symbol: str, ncbi_gene_id: str | None) -> list[GwasHit]:
+        """Run primary (gene-ID) and SNP paths concurrently, return merged results.
+
+        Uses asyncio.wait with a 15s global bound so worst case = max(paths),
+        not sum(paths). Whatever completes within the window is kept; the rest
+        is cancelled.
+        """
+        tasks: list[asyncio.Task] = []
+        if ncbi_gene_id:
+            tasks.append(asyncio.create_task(self._fetch_by_gene_id(ncbi_gene_id)))
+        tasks.append(asyncio.create_task(self._fetch_by_gene_symbol(symbol)))
+
+        if not tasks:
+            return []
+
+        # 15s global bound: if primary times out at 25s but SNP returns in 12s,
+        # we get SNP results at the 15s mark instead of waiting 45s total.
+        done, pending = await asyncio.wait(tasks, timeout=15.0)
+        for t in pending:
+            t.cancel()
+
+        merged: list[GwasHit] = []
+        for t in done:
+            try:
+                merged.extend(t.result())
+            except Exception as exc:
+                logger.warning("GWAS fetch path failed: %s", repr(exc))
+
+        if not merged and pending:
+            logger.warning("GWAS: all fetch paths timed out for %s within 15s window", symbol)
+
+        return merged
 
     async def _fetch_by_gene_symbol(self, symbol: str) -> list[GwasHit]:
         url = f"{_BASE_URL}/singleNucleotidePolymorphisms/search/findByGene"
@@ -160,7 +194,7 @@ class GwasClient:
                 except Exception:
                     return []
 
-            # Fan out all SNP→association fetches concurrently (was sequential)
+            # Fan out all SNP→association fetches concurrently
             results = await asyncio.gather(*[_fetch_snp_assocs(s) for s in snps[:10]])
             raw_assocs = [assoc for batch in results for assoc in batch]
 
@@ -198,7 +232,7 @@ class GwasClient:
             except Exception:
                 return link, {}
 
-        # Fan out study fetches concurrently (was sequential)
+        # Fan out study fetches concurrently
         fetched = await asyncio.gather(*[_fetch_study(link) for link in pending])
         study_cache = dict(fetched)
 
