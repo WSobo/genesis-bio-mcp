@@ -668,13 +668,21 @@ async def run_agent_loop(
     messages: list[dict] = [{"role": "user", "content": question}]
 
     for iteration in range(max_iterations):
-        response = await client.messages.create(
-            model=_MODEL,
-            max_tokens=_MAX_TOKENS,
-            system=_SYSTEM_PREAMBLE,
-            tools=tools_for_claude,
-            messages=messages,
-        )
+        try:
+            response = await client.messages.create(
+                model=_MODEL,
+                max_tokens=_MAX_TOKENS,
+                system=_SYSTEM_PREAMBLE,
+                tools=tools_for_claude,
+                messages=messages,
+            )
+        except anthropic.AuthenticationError:
+            return (
+                "**run_biology_workflow requires ANTHROPIC_API_KEY.**\n\n"
+                "The `ANTHROPIC_API_KEY` environment variable is not set in the MCP server's "
+                "environment. Set it in `claude_desktop_config.json` (under `env`) or export it "
+                "in the shell before starting the MCP server."
+            )
 
         if response.stop_reason == "end_turn":
             return _extract_text(response)

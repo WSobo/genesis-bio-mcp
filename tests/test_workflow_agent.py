@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import anthropic
 import pytest
 
 from genesis_bio_mcp.workflow_agent import (
@@ -417,6 +418,49 @@ async def test_agent_loop_respects_max_iterations():
 
     assert "maximum" in result.lower() or "iterations" in result.lower()
     assert mock_create.await_count == 3
+
+
+# ---------------------------------------------------------------------------
+# Test: run_agent_loop returns informative message when ANTHROPIC_API_KEY missing
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_auth_error_returns_informative_message():
+    """AuthenticationError from messages.create must return a human-readable message."""
+    registry = {
+        "get_protein_info": ToolSpec(
+            name="get_protein_info",
+            description="Get protein info",
+            input_schema={"type": "object", "properties": {}, "required": []},
+            tool_category="gene_annotation",
+            use_when="Use for protein info",
+            fn=AsyncMock(return_value="protein info"),
+        ),
+    }
+
+    mock_create = AsyncMock(
+        side_effect=anthropic.AuthenticationError(
+            message="invalid x-api-key",
+            response=MagicMock(status_code=401),
+            body={"type": "error", "error": {"type": "authentication_error"}},
+        )
+    )
+    mock_messages = MagicMock()
+    mock_messages.create = mock_create
+    mock_client = MagicMock()
+    mock_client.messages = mock_messages
+
+    with patch(
+        "genesis_bio_mcp.workflow_agent.anthropic.AsyncAnthropic",
+        return_value=mock_client,
+    ):
+        result = await run_agent_loop("What is BRAF?", registry)
+
+    assert "ANTHROPIC_API_KEY" in result
+    assert "claude_desktop_config.json" in result
+    # Must not re-raise or propagate
+    assert isinstance(result, str)
 
 
 # ---------------------------------------------------------------------------

@@ -102,10 +102,10 @@ class ReactomeClient:
     async def _run_analysis(self, gene_symbol: str, max_pathways: int) -> list[Pathway]:
         """POST gene identifier to Reactome AnalysisService; parse inline pathways.
 
-        The AnalysisService POST /identifiers/ response includes pathways inline —
-        no separate download step is needed. Using the inline result avoids a second
-        round-trip and the separate /download/ endpoint (which has had availability
-        issues historically).
+        Attempts to read pathways inline from the POST response first. If the inline
+        ``pathways`` array is empty (Reactome sometimes omits it even when
+        ``pathwaysFound`` > 0), falls back to fetching via the token endpoint:
+        ``GET /AnalysisService/token/{token}/pathways/TOTAL/``.
         """
         try:
             resp = await self._client.post(
@@ -134,17 +134,49 @@ class ReactomeClient:
             return []
 
         pathways_data: list[dict] = data.get("pathways", []) or []
-        if not pathways_data:
-            token = data.get("summary", {}).get("token")
-            logger.debug(
-                "Reactome inline pathways empty for %s (token=%s); total found=%s",
-                gene_symbol,
-                token,
-                data.get("pathwaysFound"),
-            )
+        if pathways_data:
+            return _parse_pathways(pathways_data[:max_pathways])
+
+        # Inline pathways absent — fall back to token-based fetch
+        token = data.get("summary", {}).get("token")
+        logger.warning(
+            "Reactome inline pathways empty for %s (token=%s, pathwaysFound=%s); "
+            "falling back to token endpoint",
+            gene_symbol,
+            token,
+            data.get("pathwaysFound"),
+        )
+        if not token:
             return []
 
-        return _parse_pathways(pathways_data[:max_pathways])
+        return await self._fetch_pathways_by_token(token, max_pathways)
+
+    async def _fetch_pathways_by_token(self, token: str, max_pathways: int) -> list[Pathway]:
+        """GET pathways for a completed Reactome analysis token."""
+        try:
+            resp = await self._client.get(
+                f"https://reactome.org/AnalysisService/token/{token}/pathways/TOTAL/",
+                params={
+                    "pageSize": max_pathways,
+                    "page": 1,
+                    "sortBy": "ENTITIES_PVALUE",
+                    "order": "ASC",
+                    "resource": "TOTAL",
+                },
+                timeout=20.0,
+            )
+            resp.raise_for_status()
+            # Response is a JSON array of pathway objects
+            raw: list[dict] = resp.json()
+        except Exception as exc:
+            logger.warning("Reactome token fetch failed (token=%s): %s", token, exc)
+            return []
+
+        if not isinstance(raw, list):
+            # Some Reactome responses wrap the array; handle both forms
+            raw = raw.get("pathways", []) if isinstance(raw, dict) else []
+
+        return _parse_pathways(raw[:max_pathways])
 
     async def get_pathway_members(self, pathway_name_or_id: str, max_genes: int = 50) -> list[str]:
         """Return HGNC gene symbols for all members of a named Reactome pathway.

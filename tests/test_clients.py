@@ -721,6 +721,52 @@ async def test_reactome_failure_not_cached(http_client):
     assert result2.gene_symbol == "BRAF"
 
 
+@respx.mock
+async def test_reactome_token_fallback(http_client):
+    """When POST inline pathways are empty, fall back to GET /token/{token}/pathways/TOTAL/."""
+    _post_no_inline = {
+        "summary": {"token": "abc123", "type": "OVERREPRESENTATION"},
+        "pathwaysFound": 2,
+        "pathways": [],
+    }
+    _token_pathways = [
+        {
+            "stId": "R-HSA-5673001",
+            "name": "RAF/MAP kinase cascade",
+            "entities": {"pValue": 1.2e-15, "total": 42},
+        },
+    ]
+    respx.post(url__regex=r"reactome\.org/AnalysisService/identifiers").mock(
+        return_value=httpx.Response(200, json=_post_no_inline)
+    )
+    respx.get(url__regex=r"reactome\.org/AnalysisService/token/abc123/pathways/TOTAL").mock(
+        return_value=httpx.Response(200, json=_token_pathways)
+    )
+    client = ReactomeClient(http_client)
+    result = await client.get_pathway_context("BRAF")
+
+    assert result is not None
+    assert result.gene_symbol == "BRAF"
+    assert len(result.pathways) == 1
+    assert result.pathways[0].reactome_id == "R-HSA-5673001"
+
+
+@respx.mock
+async def test_reactome_token_fallback_no_token_returns_none(http_client):
+    """If POST returns empty pathways and no token, return None gracefully."""
+    _post_no_token = {
+        "summary": {"type": "OVERREPRESENTATION"},
+        "pathwaysFound": 0,
+        "pathways": [],
+    }
+    respx.post(url__regex=r"reactome\.org/AnalysisService/identifiers").mock(
+        return_value=httpx.Response(200, json=_post_no_token)
+    )
+    client = ReactomeClient(http_client)
+    result = await client.get_pathway_context("UNKNOWNGENE")
+    assert result is None
+
+
 _MOCK_REACTOME_SEARCH_RESPONSE = {
     "results": [
         {
