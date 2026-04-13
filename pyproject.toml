@@ -26,6 +26,7 @@ dependencies = [
     "tenacity>=9.0.0",
     "polars>=1.39.3",
     "anthropic>=0.94.0",
+    "pydantic-settings>=2.13.1",
 ]
 
 [project.urls]

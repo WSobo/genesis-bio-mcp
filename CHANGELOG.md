@@ -7,6 +7,22 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [Unreleased] — v0.2.0
+
+### Added
+- `Settings` class (`config/settings.py`) via `pydantic-settings` — all runtime config now
+  configurable via `GENESIS_*` environment variables or a `.env` file without code changes
+- `docs/deployment.md` — full deployment guide covering env vars, Claude Desktop config,
+  Docker setup, and production checklist
+- `CONTRIBUTING.md` augmented with settings integration pattern for new clients
+
+### Changed
+- All hardcoded timeouts, cache paths, TTLs, semaphore limits, and the Claude model ID
+  are now read from `Settings` at startup; defaults are unchanged
+- `README.md` updated with `env` block example for Claude Desktop and link to deployment guide
+
+---
+
 ## [0.1.0] - 2026-04-11 — Initial Alpha Release
 
 ### Summary

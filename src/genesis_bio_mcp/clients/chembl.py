@@ -15,6 +15,7 @@ import logging
 
 import httpx
 
+from genesis_bio_mcp.config.settings import settings
 from genesis_bio_mcp.models import ChEMBLActivity, ChEMBLCompounds
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ _BASE = "https://www.ebi.ac.uk/chembl/api/data"
 _TARGET_SEARCH_URL = f"{_BASE}/target/search"
 _ACTIVITY_URL = f"{_BASE}/activity"
 
-_SEMAPHORE = asyncio.Semaphore(2)
+_SEMAPHORE = asyncio.Semaphore(settings.chembl_semaphore_limit)
 
 
 class ChEMBLClient:

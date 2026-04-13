@@ -6,11 +6,11 @@ import asyncio
 import json
 import logging
 import time
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx
 
+from genesis_bio_mcp.config.settings import settings
 from genesis_bio_mcp.config.trait_synonyms import filter_by_trait
 from genesis_bio_mcp.models import GwasEvidence, GwasHit
 
@@ -20,14 +20,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://www.ebi.ac.uk/gwas/rest/api"
-_CACHE_PATH = Path("data/gwas_cache.json")
-_CACHE_TTL_SECS = 86400  # 24 hours
 
 
 def _load_gwas_cache() -> dict[str, dict]:
     try:
-        if _CACHE_PATH.exists():
-            return json.loads(_CACHE_PATH.read_text())
+        if settings.gwas_cache_path.exists():
+            return json.loads(settings.gwas_cache_path.read_text())
     except Exception as exc:
         logger.warning("Failed to load GWAS cache: %s", repr(exc))
     return {}
@@ -37,7 +35,7 @@ def _get_cached(cache: dict[str, dict], symbol: str, trait: str) -> GwasEvidence
     entry = cache.get(f"{symbol}:{trait}")
     if not entry:
         return None
-    if time.time() - entry.get("fetched_at", 0) > _CACHE_TTL_SECS:
+    if time.time() - entry.get("fetched_at", 0) > settings.gwas_cache_ttl_secs:
         return None
     try:
         return GwasEvidence.model_validate(entry["result"])
@@ -48,8 +46,8 @@ def _get_cached(cache: dict[str, dict], symbol: str, trait: str) -> GwasEvidence
 def _set_cached(cache: dict[str, dict], symbol: str, trait: str, result: GwasEvidence) -> None:
     cache[f"{symbol}:{trait}"] = {"result": result.model_dump(), "fetched_at": time.time()}
     try:
-        _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _CACHE_PATH.write_text(json.dumps(cache, indent=2, default=str))
+        settings.gwas_cache_path.parent.mkdir(parents=True, exist_ok=True)
+        settings.gwas_cache_path.write_text(json.dumps(cache, indent=2, default=str))
     except Exception as exc:
         logger.warning("Failed to write GWAS cache: %s", repr(exc))
 

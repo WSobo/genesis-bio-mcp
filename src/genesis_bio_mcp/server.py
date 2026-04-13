@@ -45,6 +45,7 @@ from genesis_bio_mcp.clients.reactome import ReactomeClient
 from genesis_bio_mcp.clients.string_db import StringDbClient
 from genesis_bio_mcp.clients.uniprot import UniProtClient
 from genesis_bio_mcp.config.efo_resolver import EFOResolver
+from genesis_bio_mcp.config.settings import settings
 from genesis_bio_mcp.models import ComparisonReport, DrugHistory, TargetComparisonRow
 from genesis_bio_mcp.tools.gene_resolver import resolve_gene as _resolve_gene
 from genesis_bio_mcp.tools.target_prioritization import (
@@ -68,7 +69,9 @@ _HEADERS = {
 @asynccontextmanager
 async def lifespan(server: FastMCP):
     """Manage a shared httpx.AsyncClient and pre-load the DepMap gene cache."""
-    async with httpx.AsyncClient(headers=_HEADERS, timeout=30.0, follow_redirects=True) as client:
+    async with httpx.AsyncClient(
+        headers=_HEADERS, timeout=settings.httpx_timeout, follow_redirects=True
+    ) as client:
         # Fetch DepMap gene_dep_summary once at startup for instant lookups
         gene_dep_cache = await load_depmap_cache(client)
 
