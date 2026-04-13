@@ -643,16 +643,13 @@ async def run_agent_loop(
     """
     try:
         client = anthropic.AsyncAnthropic()
-    except anthropic.AuthenticationError as exc:
-        return (
-            "**run_biology_workflow requires ANTHROPIC_API_KEY.**\n\n"
-            "The `ANTHROPIC_API_KEY` environment variable is not set in the MCP server's "
-            "environment. Set it in `claude_desktop_config.json` (under `env`) or export it "
-            "in the shell before starting the MCP server.\n\n"
-            f"Detail: {exc}"
-        )
     except Exception as exc:
-        return f"**run_biology_workflow failed to initialize Anthropic client:** {exc}"
+        return (
+            "**run_biology_workflow is unavailable:** `ANTHROPIC_API_KEY` is not set in the "
+            "MCP server environment. Add it to `claude_desktop_config.json` under `env`, "
+            "then restart Claude Desktop. For Claude Desktop users, calling individual tools "
+            f"directly (get_drug_history, prioritize_target, etc.) provides equivalent capability.\n\nDetail: {exc}"
+        )
 
     tools_for_claude = [
         {
@@ -678,11 +675,13 @@ async def run_agent_loop(
             )
         except anthropic.AuthenticationError:
             return (
-                "**run_biology_workflow requires ANTHROPIC_API_KEY.**\n\n"
-                "The `ANTHROPIC_API_KEY` environment variable is not set in the MCP server's "
-                "environment. Set it in `claude_desktop_config.json` (under `env`) or export it "
-                "in the shell before starting the MCP server."
+                "**run_biology_workflow is unavailable:** `ANTHROPIC_API_KEY` is not set in the "
+                "MCP server environment. Add it to `claude_desktop_config.json` under `env`, "
+                "then restart Claude Desktop. For Claude Desktop users, calling individual tools "
+                "directly (get_drug_history, prioritize_target, etc.) provides equivalent capability."
             )
+        except Exception as exc:
+            return f"**run_biology_workflow failed:** {exc}"
 
         if response.stop_reason == "end_turn":
             return _extract_text(response)
