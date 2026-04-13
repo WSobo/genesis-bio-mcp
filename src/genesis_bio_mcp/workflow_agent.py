@@ -17,13 +17,14 @@ from typing import Any
 
 import anthropic
 
+from genesis_bio_mcp.config.settings import settings
 from genesis_bio_mcp.models import ComparisonReport, DrugHistory, TargetComparisonRow
 from genesis_bio_mcp.tools.gene_resolver import resolve_gene as _resolve_gene
 from genesis_bio_mcp.tools.target_prioritization import prioritize_target as _prioritize_target
 
 logger = logging.getLogger(__name__)
 
-_MODEL = "claude-sonnet-4-6"
+_MODEL = settings.claude_model
 _MAX_TOKENS = 8192
 _SYSTEM_PREAMBLE = """\
 You are a drug discovery research agent with access to biomedical databases.

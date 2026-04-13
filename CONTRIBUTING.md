@@ -104,12 +104,34 @@ async def test_my_api_get_data(http_client):
     assert result.gene_symbol == "BRAF"
 ```
 
-### 5. Checklist before opening a PR
+### 5. Settings (`src/genesis_bio_mcp/config/settings.py`)
+
+If the new client has a rate-limit semaphore or tunable timeout, add a field to the `Settings` class:
+
+```python
+my_api_semaphore_limit: int = Field(
+    default=3,
+    description="Max concurrent requests to MyApi.",
+    gt=0,
+)
+```
+
+Then in the client:
+```python
+from genesis_bio_mcp.config.settings import settings
+_SEMAPHORE = asyncio.Semaphore(settings.my_api_semaphore_limit)
+```
+
+Users can override via `GENESIS_MY_API_SEMAPHORE_LIMIT=5` or a `.env` file.
+
+### 6. Checklist before opening a PR
 
 - [ ] `uv run ruff format . && uv run ruff check --fix .` — no errors
 - [ ] `uv run pytest tests/ -v` — all passing
 - [ ] README tools table updated
 - [ ] API rate limit and auth notes added to README API reference table
+- [ ] If new client has semaphore/timeout: added field to `config/settings.py`
+- [ ] `CHANGELOG.md` updated under `## [Unreleased]`
 
 ## Commit style
 

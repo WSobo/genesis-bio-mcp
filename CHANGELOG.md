@@ -11,7 +11,10 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 - `get_pathway_members` tool — enumerate all HGNC gene symbols in a named Reactome pathway by display name or stable ID; enables systematic pathway-based screening in `run_biology_workflow`
-- `test_string_returns_empty_interactors_on_network_failure` — covers STRING resolve-success/network-failure edge case (51 tests total)
+- `Settings` class (`config/settings.py`) via `pydantic-settings` — all runtime config now configurable via `GENESIS_*` environment variables or a `.env` file without code changes
+- `docs/deployment.md` — full deployment guide covering env vars, Claude Desktop config, Docker setup, and production checklist
+- `CONTRIBUTING.md` augmented with settings integration pattern for new clients
+- `test_string_returns_empty_interactors_on_network_failure` — covers STRING resolve-success/network-failure edge case
 
 ### Fixed
 - Reactome cache poisoning — transient network failures no longer block subsequent retries for the same gene within a session
@@ -20,9 +23,11 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - MCP server startup now logs a warning if `ANTHROPIC_API_KEY` is absent, surfacing the error before the first `run_biology_workflow` call
 
 ### Changed
+- All hardcoded timeouts, cache paths, TTLs, semaphore limits, and the Claude model ID are now read from `Settings` at startup; defaults are unchanged
 - Removed unused `polars` runtime dependency
 - Removed stale `[project.optional-dependencies]` dev-dep block; `[dependency-groups]` is now the sole authoritative source
 - Version bumped to `0.2.0`; `User-Agent` header is now dynamically read from `__version__` rather than hardcoded
+- `README.md` updated with `env` block example for Claude Desktop and link to deployment guide
 
 ---
 

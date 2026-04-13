@@ -7,6 +7,7 @@ import logging
 
 import httpx
 
+from genesis_bio_mcp.config.settings import settings
 from genesis_bio_mcp.models import Pathway, PathwayContext
 
 logger = logging.getLogger(__name__)
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 _REACTOME_ANALYSIS_URL = "https://reactome.org/AnalysisService/identifiers/"
 _REACTOME_CONTENT_URL = "https://reactome.org/ContentService"
 
-_SEMAPHORE = asyncio.Semaphore(3)
+_SEMAPHORE = asyncio.Semaphore(settings.reactome_semaphore_limit)
 
 # Top-level Reactome categories for human pathways (R-HSA prefixes)
 _CATEGORY_MAP = {

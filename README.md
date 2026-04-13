@@ -56,6 +56,24 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 
 Replace `/path/to/genesis-bio-mcp` with the absolute path to your clone. Restart Claude Desktop.
 
+To pass `ANTHROPIC_API_KEY` (required for `run_biology_workflow`) or override any `GENESIS_*` setting, add an `env` block:
+
+```json
+{
+  "mcpServers": {
+    "genesis-bio-mcp": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/genesis-bio-mcp", "genesis-bio-mcp"],
+      "env": {
+        "ANTHROPIC_API_KEY": "sk-ant-..."
+      }
+    }
+  }
+}
+```
+
+See [docs/deployment.md](docs/deployment.md) for the full list of environment variables, Docker setup, and production configuration.
+
 ---
 
 ## Tools

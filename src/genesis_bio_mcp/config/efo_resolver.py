@@ -24,11 +24,14 @@ from pathlib import Path
 
 import httpx
 
+from genesis_bio_mcp.config.settings import settings
+
 logger = logging.getLogger(__name__)
 
 _OLS_URL = "https://www.ebi.ac.uk/ols4/api/search"
-_EFO_CACHE_PATH = Path("data/efo_cache.json")
-_EFO_CACHE_TTL_SECS = 604800  # 7 days
+# Default cache path read from settings at class definition time so it can be
+# used as the default argument to EFOResolver.__init__ below.
+_EFO_CACHE_PATH: Path = settings.efo_cache_path
 
 
 def _normalize(text: str) -> str:
@@ -42,10 +45,10 @@ class EFOTerm:
     synonyms: list[str] = field(default_factory=list)
 
 
-def _load_efo_cache() -> dict[str, dict]:
+def _load_efo_cache(cache_path: Path) -> dict[str, dict]:
     try:
-        if _EFO_CACHE_PATH.exists():
-            return json.loads(_EFO_CACHE_PATH.read_text())
+        if cache_path.exists():
+            return json.loads(cache_path.read_text())
     except Exception as exc:
         logger.warning("Failed to load EFO cache: %s", repr(exc))
     return {}
@@ -86,7 +89,7 @@ class EFOResolver:
         self._client = client
         self._cache_path = cache_path
         self._session_cache: dict[str, list[EFOTerm]] = {}
-        self._disk_cache: dict[str, dict] = _load_efo_cache() if cache_path else {}
+        self._disk_cache: dict[str, dict] = _load_efo_cache(cache_path) if cache_path else {}
 
     async def resolve(self, trait: str) -> list[EFOTerm]:
         """Return up to 5 best-matching EFO terms for the trait query."""
@@ -98,7 +101,7 @@ class EFOResolver:
 
         # 2. Disk cache (7-day TTL)
         entry = self._disk_cache.get(key)
-        if entry and time.time() - entry.get("fetched_at", 0) < _EFO_CACHE_TTL_SECS:
+        if entry and time.time() - entry.get("fetched_at", 0) < settings.efo_cache_ttl_secs:
             try:
                 terms = [EFOTerm(**t) for t in entry["terms"]]
                 self._session_cache[key] = terms

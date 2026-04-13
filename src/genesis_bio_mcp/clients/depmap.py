@@ -18,11 +18,11 @@ import csv
 import io
 import logging
 import time
-from pathlib import Path
 from typing import Any
 
 import httpx
 
+from genesis_bio_mcp.config.settings import settings
 from genesis_bio_mcp.models import CancerDependency, CellLineEssentiality
 
 logger = logging.getLogger(__name__)
@@ -35,12 +35,7 @@ _OT_DEPENDENCY_THRESHOLD = 0.5
 
 _DEPMAP_TASK_URL = "https://depmap.org/portal/api/task/{task_id}"
 _DEPMAP_CUSTOM_URL = "https://depmap.org/portal/api/download/custom"
-_TASK_TIMEOUT_SECS = 120
 _TASK_MIN_POLL_SECS = 2.0
-
-# Persistent disk cache — avoids re-downloading the multi-MB CSV on every cold start
-_CACHE_PATH = Path("data/depmap_cache.csv")
-_CACHE_MAX_AGE_DAYS = 7
 
 
 async def poll_task(client: httpx.AsyncClient, task_id: str) -> Any:
@@ -52,7 +47,7 @@ async def poll_task(client: httpx.AsyncClient, task_id: str) -> Any:
     url = _DEPMAP_TASK_URL.format(task_id=task_id)
     elapsed = 0.0
 
-    while elapsed < _TASK_TIMEOUT_SECS:
+    while elapsed < settings.depmap_task_timeout_secs:
         resp = await client.get(url, timeout=30.0)
         resp.raise_for_status()
         data = resp.json()
@@ -82,7 +77,9 @@ async def poll_task(client: httpx.AsyncClient, task_id: str) -> Any:
         await asyncio.sleep(next_delay)
         elapsed += next_delay
 
-    raise TimeoutError(f"DepMap task {task_id} did not complete within {_TASK_TIMEOUT_SECS}s")
+    raise TimeoutError(
+        f"DepMap task {task_id} did not complete within {settings.depmap_task_timeout_secs}s"
+    )
 
 
 # Query: get all cancer-type associations sorted by somatic_mutation score
@@ -163,12 +160,12 @@ async def load_depmap_cache(client: httpx.AsyncClient) -> dict[str, dict]:
     Dict key: uppercase gene symbol. Value: row dict with numeric fields pre-parsed.
     """
     # --- Fast path: load from disk cache ---
-    _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if _CACHE_PATH.exists():
-        age_days = (time.time() - _CACHE_PATH.stat().st_mtime) / 86400
-        if age_days < _CACHE_MAX_AGE_DAYS:
+    settings.depmap_cache_path.parent.mkdir(parents=True, exist_ok=True)
+    if settings.depmap_cache_path.exists():
+        age_days = (time.time() - settings.depmap_cache_path.stat().st_mtime) / 86400
+        if age_days < settings.depmap_cache_max_age_days:
             try:
-                text = _CACHE_PATH.read_text(encoding="utf-8")
+                text = settings.depmap_cache_path.read_text(encoding="utf-8")
                 cache = _parse_depmap_csv(text)
                 if cache:
                     logger.info(
@@ -245,8 +242,8 @@ async def load_depmap_cache(client: httpx.AsyncClient) -> dict[str, dict]:
         # Save to disk for future warm starts
         if cache:
             try:
-                _CACHE_PATH.write_text(text, encoding="utf-8")
-                logger.info("DepMap cache saved to %s", _CACHE_PATH)
+                settings.depmap_cache_path.write_text(text, encoding="utf-8")
+                logger.info("DepMap cache saved to %s", settings.depmap_cache_path)
             except Exception as exc:
                 logger.warning("Failed to save DepMap cache to disk: %s", exc)
 

@@ -1,0 +1,139 @@
+"""Centralized runtime configuration for genesis-bio-mcp.
+
+All values can be overridden via environment variables with the ``GENESIS_``
+prefix (e.g. ``GENESIS_HTTPX_TIMEOUT=60.0``) or via a ``.env`` file in the
+working directory.
+
+Usage::
+
+    from genesis_bio_mcp.config.settings import settings
+
+    client = httpx.AsyncClient(timeout=settings.httpx_timeout)
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Runtime settings for the genesis-bio-mcp server.
+
+    All fields are read-only after construction. Change behaviour by setting
+    the corresponding ``GENESIS_*`` environment variable before starting the
+    server.
+
+    Environment variables:
+        GENESIS_HTTPX_TIMEOUT         — float, seconds (default 30.0)
+        GENESIS_DEPMAP_CACHE_PATH     — path string (default data/depmap_cache.csv)
+        GENESIS_DEPMAP_CACHE_MAX_AGE_DAYS — int (default 7)
+        GENESIS_DEPMAP_TASK_TIMEOUT_SECS  — float (default 120.0)
+        GENESIS_GWAS_CACHE_PATH       — path string (default data/gwas_cache.json)
+        GENESIS_GWAS_CACHE_TTL_SECS   — int, seconds (default 86400 = 24 h)
+        GENESIS_EFO_CACHE_PATH        — path string (default data/efo_cache.json)
+        GENESIS_EFO_CACHE_TTL_SECS    — int, seconds (default 604800 = 7 days)
+        GENESIS_CHEMBL_SEMAPHORE_LIMIT   — int (default 2)
+        GENESIS_PUBCHEM_SEMAPHORE_LIMIT  — int (default 3)
+        GENESIS_REACTOME_SEMAPHORE_LIMIT — int (default 3)
+        GENESIS_CLAUDE_MODEL          — string (default claude-sonnet-4-6)
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="GENESIS_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    # ---------------------------------------------------------------------------
+    # HTTP client
+    # ---------------------------------------------------------------------------
+
+    httpx_timeout: float = Field(
+        default=30.0,
+        description="Default timeout in seconds for the shared httpx.AsyncClient.",
+        gt=0,
+    )
+
+    # ---------------------------------------------------------------------------
+    # DepMap cache
+    # ---------------------------------------------------------------------------
+
+    depmap_cache_path: Path = Field(
+        default=Path("data/depmap_cache.csv"),
+        description="Disk cache path for the DepMap gene dependency CSV.",
+    )
+    depmap_cache_max_age_days: int = Field(
+        default=7,
+        description="Maximum age in days before the DepMap disk cache is re-downloaded.",
+        gt=0,
+    )
+    depmap_task_timeout_secs: float = Field(
+        default=120.0,
+        description="Timeout in seconds when polling a DepMap Celery async task.",
+        gt=0,
+    )
+
+    # ---------------------------------------------------------------------------
+    # GWAS cache
+    # ---------------------------------------------------------------------------
+
+    gwas_cache_path: Path = Field(
+        default=Path("data/gwas_cache.json"),
+        description="Disk cache path for GWAS Catalog association results.",
+    )
+    gwas_cache_ttl_secs: int = Field(
+        default=86400,
+        description="TTL in seconds for GWAS disk cache entries (default 24 h).",
+        gt=0,
+    )
+
+    # ---------------------------------------------------------------------------
+    # EFO ontology cache
+    # ---------------------------------------------------------------------------
+
+    efo_cache_path: Path = Field(
+        default=Path("data/efo_cache.json"),
+        description="Disk cache path for EFO OLS4 term resolution results.",
+    )
+    efo_cache_ttl_secs: int = Field(
+        default=604800,
+        description="TTL in seconds for EFO disk cache entries (default 7 days).",
+        gt=0,
+    )
+
+    # ---------------------------------------------------------------------------
+    # Semaphore limits — concurrent outbound API requests per service
+    # ---------------------------------------------------------------------------
+
+    chembl_semaphore_limit: int = Field(
+        default=2,
+        description="Max concurrent requests to ChEMBL (~1 req/s rate limit).",
+        gt=0,
+    )
+    pubchem_semaphore_limit: int = Field(
+        default=3,
+        description="Max concurrent requests to PubChem.",
+        gt=0,
+    )
+    reactome_semaphore_limit: int = Field(
+        default=3,
+        description="Max concurrent requests to Reactome AnalysisService / ContentService.",
+        gt=0,
+    )
+
+    # ---------------------------------------------------------------------------
+    # Workflow agent
+    # ---------------------------------------------------------------------------
+
+    claude_model: str = Field(
+        default="claude-sonnet-4-6",
+        description="Claude model ID used by run_biology_workflow.",
+    )
+
+
+#: Singleton settings instance. Import and use this directly.
+settings = Settings()

@@ -19,6 +19,7 @@ import os
 import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
+from genesis_bio_mcp.config.settings import settings
 from genesis_bio_mcp.models import CompoundActivity, Compounds
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ _ESEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 _EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 _NCBI_EMAIL = os.environ.get("NCBI_EMAIL", "genesis-bio-mcp@example.com")
 
-_SEMAPHORE = asyncio.Semaphore(3)
+_SEMAPHORE = asyncio.Semaphore(settings.pubchem_semaphore_limit)
 
 
 def _is_rate_limited(exc: Exception) -> bool:
