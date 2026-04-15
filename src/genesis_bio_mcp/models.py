@@ -1107,6 +1107,86 @@ class ComparisonReport(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# IEDB — B-cell epitopes
+# ---------------------------------------------------------------------------
+
+
+class EpitopeRecord(BaseModel):
+    """A single B-cell epitope record from IEDB."""
+
+    sequence: str = Field(
+        description="Epitope sequence (linear) or discontinuous residue description"
+    )
+    isotype: str | None = Field(None, description="Antibody isotype, e.g. 'IgG1', 'IgG'")
+    pmid: str | None = Field(None, description="PubMed ID of the source publication")
+    pdb_id: str | None = Field(None, description="PDB ID if a crystal structure is available")
+    antigen_name: str | None = Field(None, description="Antigen protein name from IEDB")
+    antigen_accession: str | None = Field(None, description="Antigen UniProt/GenPept accession")
+    start_position: int | None = Field(None, description="Epitope start residue position")
+    end_position: int | None = Field(None, description="Epitope end residue position")
+
+
+class EpitopeResults(BaseModel):
+    """IEDB B-cell epitope search results for an antigen."""
+
+    antigen_query: str = Field(description="Antigen name used to search IEDB")
+    total_assays: int = Field(description="Total positive B-cell assay records retrieved")
+    unique_epitopes: int = Field(description="Unique epitope sequences/regions identified")
+    with_structure: int = Field(description="Number of assay records with a PDB structure")
+    epitopes: list[EpitopeRecord] = Field(
+        default_factory=list,
+        description="Unique epitope records (up to 50)",
+    )
+
+    def to_markdown(self) -> str:
+        lines = [
+            f"## IEDB B-cell Epitopes — {self.antigen_query}",
+            f"**{self.total_assays} positive assays** | "
+            f"**{self.unique_epitopes} unique epitopes** | "
+            f"{self.with_structure} with PDB structure",
+        ]
+        if not self.epitopes:
+            lines.append("\n_No positive B-cell epitope assays found for this antigen in IEDB._")
+            return "\n".join(lines)
+
+        lines += [
+            "",
+            "| Epitope Sequence / Residues | Isotype | Position | PDB | PubMed |",
+            "|---|---|---|---|---|",
+        ]
+        for ep in self.epitopes[:20]:
+            seq = ep.sequence[:60]
+            isotype = ep.isotype or "—"
+            pos = (
+                f"{ep.start_position}–{ep.end_position}"
+                if ep.start_position and ep.end_position
+                else "—"
+            )
+            pdb = ep.pdb_id or "—"
+            pmid = ep.pmid or "—"
+            lines.append(f"| `{seq}` | {isotype} | {pos} | {pdb} | {pmid} |")
+
+        # Key insights
+        structural = [ep for ep in self.epitopes if ep.pdb_id]
+        linear = [ep for ep in self.epitopes if ep.start_position and ep.end_position]
+        insights: list[str] = []
+        if structural:
+            pdb_ids = ", ".join(set(ep.pdb_id for ep in structural[:5]))  # type: ignore[arg-type]
+            insights.append(f"{len(structural)} epitopes with structural evidence (PDB: {pdb_ids})")
+        if linear:
+            insights.append(f"{len(linear)} epitopes with mapped residue positions")
+        if self.unique_epitopes > 10:
+            insights.append(
+                f"Well-characterized antigen — {self.unique_epitopes} distinct epitopes known"
+            )
+
+        if insights:
+            lines += ["", "**Key insights:** " + " | ".join(insights)]
+
+        return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # InterPro — domain annotation
 # ---------------------------------------------------------------------------
 

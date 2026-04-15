@@ -1,6 +1,6 @@
 """genesis_bio_mcp MCP server.
 
-Exposes 18 tools for biomedical database queries:
+Exposes 19 tools for biomedical database queries:
   - resolve_gene                  UniProt + NCBI: gene symbol → canonical IDs
   - get_protein_info              UniProt Swiss-Prot protein annotation
   - get_target_disease_association Open Targets: target–disease association score
@@ -12,6 +12,7 @@ Exposes 18 tools for biomedical database queries:
   - get_protein_interactome       STRING: binding partners and selectivity risks
   - get_biogrid_interactions      BioGRID: curated literature PPI network
   - get_antibody_structures       SAbDab: antibody/nanobody structures for an antigen
+  - get_epitope_data              IEDB: known B-cell epitopes for an antigen
   - get_variant_constraints       gnomAD: gene-level LoF and missense constraint metrics
   - get_domain_annotation         InterPro: domain boundaries, Pfam/SMART, GO terms
   - get_drug_history              DGIdb + ClinicalTrials.gov: known drugs and trials
@@ -48,6 +49,7 @@ from genesis_bio_mcp.clients.depmap import DepMapClient, load_depmap_cache
 from genesis_bio_mcp.clients.dgidb import DGIdbClient
 from genesis_bio_mcp.clients.gnomad import GnomADClient
 from genesis_bio_mcp.clients.gwas import GwasClient
+from genesis_bio_mcp.clients.iedb import IEDBClient
 from genesis_bio_mcp.clients.interpro import InterProClient
 from genesis_bio_mcp.clients.open_targets import OpenTargetsClient
 from genesis_bio_mcp.clients.pubchem import PubChemClient
@@ -106,6 +108,7 @@ async def lifespan(server: FastMCP):
         server.state.string_db = StringDbClient(client)
         server.state.biogrid = BioGRIDClient(client)
         server.state.sabdab = SAbDabClient(client)
+        server.state.iedb = IEDBClient(client)
         server.state.dgidb = DGIdbClient(client)
         server.state.clinical_trials = ClinicalTrialsClient(client)
         server.state.reactome = ReactomeClient(client)
@@ -214,6 +217,24 @@ class GetVariantConstraintsInput(_GeneInput):
 
 class GetDomainAnnotationInput(_GeneInput):
     """Input for get_domain_annotation."""
+
+
+class GetEpitopeDataInput(BaseModel):
+    """Input for get_epitope_data."""
+
+    model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True, extra="forbid")
+    antigen_query: str = Field(
+        ...,
+        description=(
+            "Antigen protein name to search IEDB for known B-cell epitopes. "
+            "Use the full protein name for best results: e.g. 'epidermal growth factor receptor', "
+            "'tumor necrosis factor', 'programmed death-ligand 1'. "
+            "Gene symbols (e.g. 'EGFR') also work but may return fewer results."
+        ),
+        min_length=1,
+        max_length=200,
+    )
+    response_format: Literal["markdown", "json"] = _RESPONSE_FORMAT_FIELD
 
 
 class GetAntibodyStructuresInput(BaseModel):
@@ -703,6 +724,45 @@ async def get_antibody_structures(params: GetAntibodyStructuresInput) -> str:
     if params.response_format == "json":
         return result.model_dump_json(indent=2)
     return result.to_markdown()
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    )
+)
+async def get_epitope_data(params: GetEpitopeDataInput) -> str:
+    """Retrieve known B-cell epitope records from IEDB for a given antigen.
+
+    Use this tool to understand the immunological landscape for an antigen target
+    before designing antibody or nanobody therapeutics.  IEDB provides the most
+    comprehensive curated database of published B-cell epitopes with experimental
+    evidence (binding assays, crystal structures).
+
+    Critical for antibody design: known epitopes identify which regions of the
+    antigen surface have been targeted, and PDB-annotated epitopes confirm the
+    3D binding mode.  A target with many known epitopes (especially structural ones)
+    is well-characterized for Ab engineering; a sparse epitope landscape suggests
+    fewer published precedents.
+
+    Use the full protein name for best results (e.g. 'epidermal growth factor
+    receptor' not 'EGFR'). Combine with get_antibody_structures for structural
+    context and get_protein_structure for antigen conformation.
+
+    Args:
+        params (GetEpitopeDataInput): antigen_query, response_format.
+
+    Returns:
+        Markdown with total positive assays, unique epitope count, structural
+        evidence count, and a table of epitope sequences/residues with isotype,
+        position, PDB ID, and PubMed citation.
+    """
+    result = await mcp.state.iedb.get_epitopes(params.antigen_query)
+    return _fmt(
+        result,
+        params.response_format,
+        f"No B-cell epitope data found for '{params.antigen_query}' in IEDB.",
+    )
 
 
 @mcp.tool(

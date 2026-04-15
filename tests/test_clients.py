@@ -11,6 +11,7 @@ from genesis_bio_mcp.clients.depmap import DepMapClient
 from genesis_bio_mcp.clients.dgidb import DGIdbClient
 from genesis_bio_mcp.clients.gnomad import GnomADClient
 from genesis_bio_mcp.clients.gwas import GwasClient
+from genesis_bio_mcp.clients.iedb import IEDBClient
 from genesis_bio_mcp.clients.interpro import InterProClient
 from genesis_bio_mcp.clients.open_targets import OpenTargetsClient
 from genesis_bio_mcp.clients.pubchem import PubChemClient
@@ -1417,3 +1418,113 @@ def test_interpro_to_markdown():
     assert "457" in md
     assert "717" in md
     assert "PF00069" in md
+
+
+# ---------------------------------------------------------------------------
+# IEDB client tests
+# ---------------------------------------------------------------------------
+
+_MOCK_IEDB_RESPONSE = [
+    {
+        "structure_description": "K443, L444, I448, M480",
+        "linear_sequence": None,
+        "qualitative_measure": "Positive",
+        "antibody_isotype": "IgG1",
+        "pubmed_id": "15837620",
+        "pdb_id": "1yy9",
+        "curated_source_antigen": {
+            "accession": "P00533.2",
+            "name": "Epidermal growth factor receptor",
+            "starting_position": None,
+            "ending_position": None,
+        },
+    },
+    {
+        "structure_description": "EEEEEEIVYK",
+        "linear_sequence": "EEEEEEIVYK",
+        "qualitative_measure": "Positive",
+        "antibody_isotype": "IgG",
+        "pubmed_id": "12345678",
+        "pdb_id": None,
+        "curated_source_antigen": {
+            "accession": "P00533.2",
+            "name": "Epidermal growth factor receptor",
+            "starting_position": 100,
+            "ending_position": 109,
+        },
+    },
+]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_iedb_get_epitopes_happy_path(http_client):
+    """Should parse IEDB response and return EpitopeResults."""
+    respx.get(url__regex=r"query-api\.iedb\.org/api/v1/bcell_search").mock(
+        return_value=httpx.Response(200, json=_MOCK_IEDB_RESPONSE)
+    )
+    client = IEDBClient(http_client)
+    result = await client.get_epitopes("epidermal growth factor receptor")
+
+    assert result is not None
+    assert result.total_assays == 2
+    assert result.unique_epitopes == 2
+    assert result.with_structure == 1
+    assert len(result.epitopes) == 2
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_iedb_empty_results(http_client):
+    """Returns EpitopeResults with 0 assays on empty list response."""
+    respx.get(url__regex=r"query-api\.iedb\.org/api/v1/bcell_search").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+    client = IEDBClient(http_client)
+    result = await client.get_epitopes("unknown_antigen")
+
+    assert result is not None
+    assert result.total_assays == 0
+    assert result.epitopes == []
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_iedb_network_error_returns_none(http_client):
+    """Returns None on network error."""
+    respx.get(url__regex=r"query-api\.iedb\.org/api/v1/bcell_search").mock(
+        side_effect=httpx.ConnectError("timeout")
+    )
+    client = IEDBClient(http_client)
+    result = await client.get_epitopes("egfr")
+
+    assert result is None
+
+
+def test_iedb_to_markdown():
+    """EpitopeResults.to_markdown includes assay count and epitope sequences."""
+    from genesis_bio_mcp.models import EpitopeRecord, EpitopeResults
+
+    result = EpitopeResults(
+        antigen_query="epidermal growth factor receptor",
+        total_assays=2,
+        unique_epitopes=2,
+        with_structure=1,
+        epitopes=[
+            EpitopeRecord(
+                sequence="K443, L444, I448",
+                isotype="IgG1",
+                pmid="15837620",
+                pdb_id="1yy9",
+                antigen_name="Epidermal growth factor receptor",
+                antigen_accession="P00533.2",
+                start_position=None,
+                end_position=None,
+            ),
+        ],
+    )
+    md = result.to_markdown()
+    assert "epidermal growth factor receptor" in md
+    assert "2 positive assays" in md
+    assert "1yy9" in md
+    assert "IgG1" in md

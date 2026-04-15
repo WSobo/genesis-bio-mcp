@@ -165,6 +165,14 @@ def build_tool_registry(state: Any) -> dict[str, ToolSpec]:
             return f"No BioGRID interaction data found for '{gene_symbol}'."
         return result.to_markdown()
 
+    async def _get_epitope_data_fn(antigen_query: str) -> str:
+        result = await state.iedb.get_epitopes(antigen_query)
+        if result is None:
+            return f"IEDB data temporarily unavailable for '{antigen_query}'."
+        if result.total_assays == 0:
+            return f"No B-cell epitope data found in IEDB for '{antigen_query}'."
+        return result.to_markdown()
+
     async def _get_antibody_structures_fn(antigen_query: str, max_results: int = 20) -> str:
         result = await state.sabdab.get_antibody_structures(antigen_query, max_results=max_results)
         if result is None:
@@ -514,6 +522,35 @@ def build_tool_registry(state: Any) -> dict[str, ToolSpec]:
                 "Complements STRING when you need experimental method details or citation evidence."
             ),
             fn=_get_biogrid_interactions_fn,
+        ),
+        "get_epitope_data": ToolSpec(
+            name="get_epitope_data",
+            description=(
+                "Retrieve known B-cell epitope records from IEDB for an antigen: epitope sequences, "
+                "antibody isotypes, residue positions, PDB structural evidence, and publication citations. "
+                "Shows which regions of the antigen surface have been characterized immunologically."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "antigen_query": {
+                        "type": "string",
+                        "description": (
+                            "Full antigen protein name for best results. "
+                            "Examples: 'epidermal growth factor receptor', 'tumor necrosis factor', "
+                            "'programmed death-ligand 1'."
+                        ),
+                    }
+                },
+                "required": ["antigen_query"],
+            },
+            tool_category="antibody",
+            use_when=(
+                "Use when designing antibody therapeutics to understand which epitopes are known on the "
+                "antigen, how well-characterized the target is immunologically, and whether structural "
+                "epitope data (PDB) exists to guide CDR engineering."
+            ),
+            fn=_get_epitope_data_fn,
         ),
         "get_antibody_structures": ToolSpec(
             name="get_antibody_structures",
