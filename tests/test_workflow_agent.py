@@ -42,6 +42,7 @@ def _mock_state() -> MagicMock:
         "gnomad",
         "interpro",
         "iedb",
+        "mavedb",
     ):
         client = MagicMock()
         for method in (
@@ -60,6 +61,7 @@ def _mock_state() -> MagicMock:
             "get_constraint",
             "get_domains",
             "get_epitopes",
+            "get_dms_scores",
         ):
             mock_result = MagicMock()
             mock_result.to_markdown.return_value = f"## Mock {attr}.{method}\n\nData here."
@@ -129,6 +131,7 @@ def test_build_tool_registry_has_all_tools():
         "get_antibody_structures",
         "get_variant_constraints",
         "get_domain_annotation",
+        "get_dms_scores",
         "get_drug_history",
         "get_pathway_context",
         "get_pathway_members",
@@ -488,7 +491,7 @@ def test_format_registry_docs_structure():
 
     # Header present
     assert "genesis-bio-mcp Tool Registry" in docs
-    assert "19 tools" in docs
+    assert "20 tools" in docs
 
     # Every tool name must appear
     for name in registry:

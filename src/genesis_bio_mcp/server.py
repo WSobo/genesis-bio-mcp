@@ -1,6 +1,6 @@
 """genesis_bio_mcp MCP server.
 
-Exposes 19 tools for biomedical database queries:
+Exposes 20 tools for biomedical database queries:
   - resolve_gene                  UniProt + NCBI: gene symbol → canonical IDs
   - get_protein_info              UniProt Swiss-Prot protein annotation
   - get_target_disease_association Open Targets: target–disease association score
@@ -15,6 +15,7 @@ Exposes 19 tools for biomedical database queries:
   - get_epitope_data              IEDB: known B-cell epitopes for an antigen
   - get_variant_constraints       gnomAD: gene-level LoF and missense constraint metrics
   - get_domain_annotation         InterPro: domain boundaries, Pfam/SMART, GO terms
+  - get_dms_scores                MaveDB: deep mutational scanning score sets
   - get_drug_history              DGIdb + ClinicalTrials.gov: known drugs and trials
   - get_pathway_context           Reactome: pathway membership and enrichment for a gene
   - get_pathway_members           Reactome: enumerate all genes in a named pathway
@@ -51,6 +52,7 @@ from genesis_bio_mcp.clients.gnomad import GnomADClient
 from genesis_bio_mcp.clients.gwas import GwasClient
 from genesis_bio_mcp.clients.iedb import IEDBClient
 from genesis_bio_mcp.clients.interpro import InterProClient
+from genesis_bio_mcp.clients.mavedb import MaveDBClient
 from genesis_bio_mcp.clients.open_targets import OpenTargetsClient
 from genesis_bio_mcp.clients.pubchem import PubChemClient
 from genesis_bio_mcp.clients.reactome import ReactomeClient
@@ -109,6 +111,7 @@ async def lifespan(server: FastMCP):
         server.state.biogrid = BioGRIDClient(client)
         server.state.sabdab = SAbDabClient(client)
         server.state.iedb = IEDBClient(client)
+        server.state.mavedb = MaveDBClient(client)
         server.state.dgidb = DGIdbClient(client)
         server.state.clinical_trials = ClinicalTrialsClient(client)
         server.state.reactome = ReactomeClient(client)
@@ -217,6 +220,10 @@ class GetVariantConstraintsInput(_GeneInput):
 
 class GetDomainAnnotationInput(_GeneInput):
     """Input for get_domain_annotation."""
+
+
+class GetDMSScoresInput(_GeneInput):
+    """Input for get_dms_scores."""
 
 
 class GetEpitopeDataInput(BaseModel):
@@ -833,6 +840,38 @@ async def get_domain_annotation(params: GetDomainAnnotationInput) -> str:
         readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
     )
 )
+async def get_dms_scores(params: GetDMSScoresInput) -> str:
+    """Retrieve deep mutational scanning (DMS) score sets from MaveDB for a gene.
+
+    Use this tool when you need residue-level fitness or function scores for a
+    protein.  DMS datasets provide the highest-resolution mutation-tolerance signal
+    available — every possible single amino acid change scored in a defined assay
+    (binding, stability, growth, etc.).  When a DMS dataset exists for a target it
+    should be consulted before proposing specific mutations in an engineering campaign.
+
+    Not all genes have DMS data.  Returns an empty result (not an error) when no
+    score sets are found — the absence is itself informative.
+
+    Args:
+        params (GetDMSScoresInput): gene_symbol, response_format.
+
+    Returns:
+        Markdown table of available DMS score sets with URNs, variant counts,
+        UniProt accessions, publication dates, and PubMed IDs.  Returns a message
+        indicating no data when MaveDB has no score sets for this gene.
+    """
+    symbol, _ = await _resolve_symbol(params.gene_symbol)
+    result = await mcp.state.mavedb.get_dms_scores(symbol)
+    return _fmt(
+        result, params.response_format, f"No DMS score sets found in MaveDB for '{symbol}'."
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    )
+)
 async def get_drug_history(params: GetDrugHistoryInput) -> str:
     """Retrieve the drug development history for a gene target.
 
@@ -1126,7 +1165,7 @@ async def tool_registry_resource() -> str:
 
     Returns:
         Markdown document grouped by tool category with descriptions and
-        ``use_when`` fields for all 15 registered tools.
+        ``use_when`` fields for all 20 registered tools.
     """
     registry = build_tool_registry(mcp.state)
     return format_registry_docs(registry)

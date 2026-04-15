@@ -1449,6 +1449,12 @@ class AntibodyStructure(BaseModel):
     compound: str | None = Field(None, description="PDB compound description")
     date_added: str | None = Field(None, description="Date added to SAbDab (MM/DD/YY)")
     pmid: str | None = Field(None, description="PubMed ID of the source publication")
+    vh_cdr1: str | None = Field(None, description="VH CDR1 sequence (Chothia)")
+    vh_cdr2: str | None = Field(None, description="VH CDR2 sequence (Chothia)")
+    vh_cdr3: str | None = Field(None, description="VH CDR3 sequence (Chothia)")
+    vl_cdr1: str | None = Field(None, description="VL CDR1 sequence (Chothia); None for nanobodies")
+    vl_cdr2: str | None = Field(None, description="VL CDR2 sequence (Chothia); None for nanobodies")
+    vl_cdr3: str | None = Field(None, description="VL CDR3 sequence (Chothia); None for nanobodies")
 
 
 class AntibodyStructures(BaseModel):
@@ -1490,6 +1496,19 @@ class AntibodyStructures(BaseModel):
                 f"| **{s.pdb}** | {ab_type} | {res} | {method} | {species} | {subclass} | {eng} | {aff} |"
             )
 
+        # CDR annotation block for top structure
+        top = self.structures[0]
+        if top.vh_cdr1 or top.vh_cdr2 or top.vh_cdr3:
+            lines += ["", f"**CDR sequences ({top.pdb}, Chothia):**"]
+            if top.vh_cdr1 or top.vh_cdr2 or top.vh_cdr3:
+                lines.append(
+                    f"VH: CDR1=`{top.vh_cdr1 or '—'}` | CDR2=`{top.vh_cdr2 or '—'}` | CDR3=`{top.vh_cdr3 or '—'}`"
+                )
+            if not top.is_nanobody and (top.vl_cdr1 or top.vl_cdr2 or top.vl_cdr3):
+                lines.append(
+                    f"VL: CDR1=`{top.vl_cdr1 or '—'}` | CDR2=`{top.vl_cdr2 or '—'}` | CDR3=`{top.vl_cdr3 or '—'}`"
+                )
+
         # Surface key insights
         best = self.structures[0]
         insights: list[str] = []
@@ -1507,4 +1526,71 @@ class AntibodyStructures(BaseModel):
         if insights:
             lines += ["", "**Key insights:** " + " | ".join(insights)]
 
+        return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# MaveDB — deep mutational scanning score sets
+# ---------------------------------------------------------------------------
+
+
+class DMSScoreSet(BaseModel):
+    """A single deep mutational scanning (DMS) score set from MaveDB."""
+
+    urn: str = Field(description="MaveDB URN identifier, e.g. 'urn:mavedb:00000001-a-1'")
+    title: str = Field(description="Score set title describing the experiment")
+    short_description: str | None = Field(None, description="Brief description of the assay")
+    num_variants: int = Field(description="Number of sequence variants scored in this set")
+    target_gene: str | None = Field(None, description="Target gene symbol from MaveDB metadata")
+    uniprot_accession: str | None = Field(
+        None, description="UniProt accession of the target protein if mapped"
+    )
+    published_date: str | None = Field(None, description="Publication date of the score set")
+    pmid: str | None = Field(None, description="PubMed ID of the primary publication")
+    doi: str | None = Field(None, description="DOI of the primary publication")
+
+
+class DMSResults(BaseModel):
+    """Deep mutational scanning datasets from MaveDB for a gene."""
+
+    gene_symbol: str = Field(description="Query gene symbol")
+    total_score_sets: int = Field(description="Total number of DMS score sets found")
+    total_variants: int = Field(description="Sum of variants across all score sets")
+    score_sets: list[DMSScoreSet] = Field(
+        default_factory=list,
+        description="Available DMS score sets sorted by variant count (largest first)",
+    )
+
+    def to_markdown(self) -> str:
+        lines = [
+            f"## Deep Mutational Scanning — {self.gene_symbol}",
+            f"**{self.total_score_sets} score set(s)** | "
+            f"**{self.total_variants:,} total variants** across all experiments",
+        ]
+        if not self.score_sets:
+            lines.append(
+                "\n_No DMS score sets found in MaveDB for this gene. "
+                "DMS data is sparse — not all genes have been characterized._"
+            )
+            return "\n".join(lines)
+
+        lines += [
+            "",
+            "| URN | Title | Variants | UniProt | Published | PMID |",
+            "|---|---|---|---|---|---|",
+        ]
+        for ss in self.score_sets:
+            title = ss.title[:55] + "…" if len(ss.title) > 55 else ss.title
+            uniprot = ss.uniprot_accession or "—"
+            pub = ss.published_date or "—"
+            pmid = ss.pmid or "—"
+            lines.append(
+                f"| `{ss.urn}` | {title} | {ss.num_variants:,} | {uniprot} | {pub} | {pmid} |"
+            )
+
+        lines += [
+            "",
+            "**Note:** Retrieve individual variant scores via the MaveDB web interface "
+            "or API using the URN. Higher variant counts indicate more complete mutational coverage.",
+        ]
         return "\n".join(lines)

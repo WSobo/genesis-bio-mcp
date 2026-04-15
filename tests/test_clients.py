@@ -13,6 +13,7 @@ from genesis_bio_mcp.clients.gnomad import GnomADClient
 from genesis_bio_mcp.clients.gwas import GwasClient
 from genesis_bio_mcp.clients.iedb import IEDBClient
 from genesis_bio_mcp.clients.interpro import InterProClient
+from genesis_bio_mcp.clients.mavedb import MaveDBClient
 from genesis_bio_mcp.clients.open_targets import OpenTargetsClient
 from genesis_bio_mcp.clients.pubchem import PubChemClient
 from genesis_bio_mcp.clients.reactome import ReactomeClient
@@ -1156,6 +1157,192 @@ def test_sabdab_to_markdown():
     assert "2.50 Å" in md
 
 
+# Minimal RCSB FASTA for 1ABC: chain H (heavy) and chain L (light)
+_MOCK_RCSB_FASTA = (
+    ">1ABC_1|Chains H|Anti-EGFR heavy chain|Homo sapiens (9606)\n"
+    "EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVK"
+    "GRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSS\n"
+    ">1ABC_2|Chains L|Anti-EGFR light chain|Homo sapiens (9606)\n"
+    "DIQMTQSPSSLSASVGDRVTITCRASQSISSYLSWYQQKPGKAPKLLIYAASSLQSGVPSRFSG"
+    "SRSGTDFTLTISSLQPEDFATYYCQQSYSTPPTFGQGTKVEIK\n"
+)
+
+# Minimal AbNum output (Chothia) for heavy chain — only CDR-relevant positions
+_MOCK_ABNUM_VH = "\n".join(
+    [
+        # CDR-H1 (Chothia H26-H32): GFNIKDT
+        "H26 G",
+        "H27 F",
+        "H28 N",
+        "H29 I",
+        "H30 K",
+        "H31 D",
+        "H32 T",
+        # CDR-H2 (Chothia H52-H58): IYPTNG + insertions
+        "H52 I",
+        "H52A Y",
+        "H53 P",
+        "H54 T",
+        "H55 N",
+        "H56 G",
+        "H57 Y",
+        "H58 T",
+        # CDR-H3 (Chothia H95-H102): RWGGDGFY + insertion
+        "H95 R",
+        "H96 W",
+        "H97 G",
+        "H98 G",
+        "H99 D",
+        "H100 G",
+        "H100A F",
+        "H101 Y",
+        "H102 A",
+    ]
+)
+
+# Minimal AbNum output for light chain (Chothia): CDR-L1/2/3
+_MOCK_ABNUM_VL = "\n".join(
+    [
+        # CDR-L1 (Chothia L24-L34): RASQSISSYLS
+        "L24 R",
+        "L25 A",
+        "L26 S",
+        "L27 Q",
+        "L28 S",
+        "L29 I",
+        "L30 S",
+        "L31 S",
+        "L32 Y",
+        "L33 L",
+        "L34 S",
+        # CDR-L2 (Chothia L50-L56): AASSLQS
+        "L50 A",
+        "L51 A",
+        "L52 S",
+        "L53 S",
+        "L54 L",
+        "L55 Q",
+        "L56 S",
+        # CDR-L3 (Chothia L89-L97): QQSYSTPPT
+        "L89 Q",
+        "L90 Q",
+        "L91 S",
+        "L92 Y",
+        "L93 S",
+        "L94 T",
+        "L95 P",
+        "L96 P",
+        "L97 T",
+    ]
+)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_sabdab_cdr_annotation_happy_path(http_client, tmp_path, monkeypatch):
+    """Top structures should have VH and VL CDR sequences populated via AbNum."""
+    monkeypatch.setattr(
+        "genesis_bio_mcp.clients.sabdab.settings.sabdab_cache_path",
+        tmp_path / "sabdab_cache.tsv",
+    )
+    monkeypatch.setattr(
+        "genesis_bio_mcp.clients.sabdab.settings.sabdab_cache_ttl_secs",
+        604800,
+    )
+
+    respx.get(url__regex=r"sabdab-sabpred.*summary").mock(
+        return_value=httpx.Response(200, content=_MOCK_SABDAB_TSV.encode())
+    )
+    respx.get(url__regex=r"rcsb\.org/fasta").mock(
+        return_value=httpx.Response(200, text=_MOCK_RCSB_FASTA)
+    )
+
+    # Mock AbNum: return VH output for H chain, VL for L chain
+    def _abnum_side_effect(request, **kwargs):
+        aaseq = dict(request.url.params).get("aaseq", "")
+        # Identify chain type by sequence content (crude but deterministic in tests)
+        return httpx.Response(200, text=_MOCK_ABNUM_VH if "EVQL" in aaseq else _MOCK_ABNUM_VL)
+
+    respx.get(url__regex=r"bioinf\.org\.uk.*abnum").mock(side_effect=_abnum_side_effect)
+
+    client = SAbDabClient(http_client)
+    result = await client.get_antibody_structures("egfr")
+
+    assert result is not None
+    top = result.structures[0]
+    assert top.pdb == "1ABC"
+    assert top.vh_cdr1 == "GFNIKDT"
+    assert top.vh_cdr2 == "IYP TNGYT".replace(" ", "")  # H52-H58 with H52A
+    assert top.vh_cdr3 == "RWGGDGFYA"  # H95-H102 with H100A
+    assert top.vl_cdr1 == "RASQSISSYLS"
+    assert top.vl_cdr2 == "AASSLQS"
+    assert top.vl_cdr3 == "QQSYSTPPT"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_sabdab_cdr_annotation_fasta_failure(http_client, tmp_path, monkeypatch):
+    """When RCSB FASTA fails, structures are returned with CDR fields as None."""
+    monkeypatch.setattr(
+        "genesis_bio_mcp.clients.sabdab.settings.sabdab_cache_path",
+        tmp_path / "sabdab_cache.tsv",
+    )
+    monkeypatch.setattr(
+        "genesis_bio_mcp.clients.sabdab.settings.sabdab_cache_ttl_secs",
+        604800,
+    )
+
+    respx.get(url__regex=r"sabdab-sabpred.*summary").mock(
+        return_value=httpx.Response(200, content=_MOCK_SABDAB_TSV.encode())
+    )
+    respx.get(url__regex=r"rcsb\.org/fasta").mock(return_value=httpx.Response(404))
+
+    client = SAbDabClient(http_client)
+    result = await client.get_antibody_structures("egfr")
+
+    assert result is not None
+    assert result.total_structures == 2
+    top = result.structures[0]
+    assert top.pdb == "1ABC"
+    assert top.vh_cdr1 is None
+    assert top.vh_cdr2 is None
+    assert top.vh_cdr3 is None
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_sabdab_cdr_annotation_abnum_failure(http_client, tmp_path, monkeypatch):
+    """When AbNum returns empty output, CDR fields are None and no exception propagates."""
+    monkeypatch.setattr(
+        "genesis_bio_mcp.clients.sabdab.settings.sabdab_cache_path",
+        tmp_path / "sabdab_cache.tsv",
+    )
+    monkeypatch.setattr(
+        "genesis_bio_mcp.clients.sabdab.settings.sabdab_cache_ttl_secs",
+        604800,
+    )
+
+    respx.get(url__regex=r"sabdab-sabpred.*summary").mock(
+        return_value=httpx.Response(200, content=_MOCK_SABDAB_TSV.encode())
+    )
+    respx.get(url__regex=r"rcsb\.org/fasta").mock(
+        return_value=httpx.Response(200, text=_MOCK_RCSB_FASTA)
+    )
+    respx.get(url__regex=r"bioinf\.org\.uk.*abnum").mock(
+        return_value=httpx.Response(200, text="")  # empty — no numbering assigned
+    )
+
+    client = SAbDabClient(http_client)
+    result = await client.get_antibody_structures("egfr")
+
+    assert result is not None
+    top = result.structures[0]
+    assert top.vh_cdr1 is None
+    assert top.vh_cdr2 is None
+    assert top.vh_cdr3 is None
+    assert top.vl_cdr1 is None
+
+
 # ---------------------------------------------------------------------------
 # gnomAD client tests
 # ---------------------------------------------------------------------------
@@ -1528,3 +1715,126 @@ def test_iedb_to_markdown():
     assert "2 positive assays" in md
     assert "1yy9" in md
     assert "IgG1" in md
+
+
+# ---------------------------------------------------------------------------
+# MaveDB client tests
+# ---------------------------------------------------------------------------
+
+_MOCK_MAVEDB_SEARCH = {
+    "scoreSets": [
+        {
+            "urn": "urn:mavedb:00000097-a-1",
+            "title": "BRCA1 RING domain saturation genome editing",
+            "shortDescription": "SGE fitness scores for BRCA1 RING domain variants",
+            "numVariants": 3893,
+            "publishedDate": "2018-09-12",
+            "targetGenes": [
+                {
+                    "name": "BRCA1",
+                    "uniprotIdFromMappedMetadata": "P38398",
+                }
+            ],
+            "primaryPublicationIdentifiers": [
+                {"dbName": "PubMed", "identifier": "30209399"},
+            ],
+        },
+        {
+            "urn": "urn:mavedb:00000050-a-1",
+            "title": "BRCA1 BRCT domain functional scores",
+            "shortDescription": "Deep mutational scan of BRCA1 BRCT domain",
+            "numVariants": 1056,
+            "publishedDate": "2018-01-25",
+            "targetGenes": [
+                {
+                    "name": "BRCA1",
+                    "uniprotIdFromMappedMetadata": "P38398",
+                }
+            ],
+            "primaryPublicationIdentifiers": [
+                {"dbName": "PubMed", "identifier": "29785012"},
+                {"dbName": "doi", "identifier": "10.1016/j.cell.2018.03.072"},
+            ],
+        },
+    ]
+}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_mavedb_happy_path(http_client):
+    """Returns DMSResults with sorted score sets on success."""
+    respx.post(url__regex=r"api\.mavedb\.org/api/v1/score-sets/search").mock(
+        return_value=httpx.Response(200, json=_MOCK_MAVEDB_SEARCH)
+    )
+    client = MaveDBClient(http_client)
+    result = await client.get_dms_scores("BRCA1")
+
+    assert result is not None
+    assert result.gene_symbol == "BRCA1"
+    assert result.total_score_sets == 2
+    assert result.total_variants == 3893 + 1056
+    # Sorted by variant count descending
+    assert result.score_sets[0].num_variants == 3893
+    assert result.score_sets[0].urn == "urn:mavedb:00000097-a-1"
+    assert result.score_sets[0].uniprot_accession == "P38398"
+    assert result.score_sets[0].pmid == "30209399"
+    assert result.score_sets[1].doi == "10.1016/j.cell.2018.03.072"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_mavedb_empty_results(http_client):
+    """Returns DMSResults with zero score sets when no data found."""
+    respx.post(url__regex=r"api\.mavedb\.org/api/v1/score-sets/search").mock(
+        return_value=httpx.Response(200, json={"scoreSets": []})
+    )
+    client = MaveDBClient(http_client)
+    result = await client.get_dms_scores("UNKNOWNGENE")
+
+    assert result is not None
+    assert result.total_score_sets == 0
+    assert result.score_sets == []
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_mavedb_network_error_returns_none(http_client):
+    """Returns None on network error."""
+    respx.post(url__regex=r"api\.mavedb\.org/api/v1/score-sets/search").mock(
+        side_effect=httpx.ConnectError("timeout")
+    )
+    client = MaveDBClient(http_client)
+    result = await client.get_dms_scores("BRCA1")
+
+    assert result is None
+
+
+def test_mavedb_to_markdown():
+    """DMSResults.to_markdown includes gene name, counts, and URNs."""
+    from genesis_bio_mcp.models import DMSResults, DMSScoreSet
+
+    result = DMSResults(
+        gene_symbol="BRCA1",
+        total_score_sets=1,
+        total_variants=3893,
+        score_sets=[
+            DMSScoreSet(
+                urn="urn:mavedb:00000097-a-1",
+                title="BRCA1 RING domain saturation genome editing",
+                short_description=None,
+                num_variants=3893,
+                target_gene="BRCA1",
+                uniprot_accession="P38398",
+                published_date="2018-09-12",
+                pmid="30209399",
+                doi=None,
+            )
+        ],
+    )
+    md = result.to_markdown()
+    assert "BRCA1" in md
+    assert "1 score set" in md
+    assert "3,893" in md
+    assert "urn:mavedb:00000097-a-1" in md
+    assert "30209399" in md

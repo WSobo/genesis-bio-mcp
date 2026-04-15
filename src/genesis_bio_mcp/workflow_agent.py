@@ -195,6 +195,17 @@ def build_tool_registry(state: Any) -> dict[str, ToolSpec]:
             return f"No InterPro domain data found for '{gene_symbol}'."
         return result.to_markdown()
 
+    async def _get_dms_scores_fn(gene_symbol: str) -> str:
+        result = await state.mavedb.get_dms_scores(gene_symbol)
+        if result is None:
+            return f"MaveDB data temporarily unavailable for '{gene_symbol}'."
+        if result.total_score_sets == 0:
+            return (
+                f"No DMS score sets found in MaveDB for '{gene_symbol}'. "
+                "DMS data is sparse — not all genes have been profiled."
+            )
+        return result.to_markdown()
+
     async def _get_drug_history_fn(gene_symbol: str) -> str:
         drugs, ct_result = await asyncio.gather(
             state.dgidb.get_drug_interactions(gene_symbol),
@@ -633,6 +644,31 @@ def build_tool_registry(state: Any) -> dict[str, ToolSpec]:
             ),
             fn=_get_variant_constraints_fn,
         ),
+        "get_dms_scores": ToolSpec(
+            name="get_dms_scores",
+            description=(
+                "Search MaveDB for deep mutational scanning (DMS) score sets for a gene. "
+                "Returns available experiments with variant counts, URNs, UniProt accessions, and citations. "
+                "DMS datasets provide residue-level fitness scores for every possible amino acid change."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "gene_symbol": {
+                        "type": "string",
+                        "description": "HGNC gene symbol. Example: 'BRCA1'",
+                    }
+                },
+                "required": ["gene_symbol"],
+            },
+            tool_category="protein_engineering",
+            use_when=(
+                "Use when planning specific mutations to check if experimental fitness scores exist. "
+                "DMS data is the highest-fidelity residue-level tolerance signal when available. "
+                "Returns empty result (not an error) when no DMS data exists for the gene."
+            ),
+            fn=_get_dms_scores_fn,
+        ),
         "get_drug_history": ToolSpec(
             name="get_drug_history",
             description=(
@@ -912,6 +948,8 @@ def format_registry_docs(registry: dict[str, ToolSpec]) -> str:
         "druggability",
         "structure",
         "pathways",
+        "protein_engineering",
+        "antibody",
         "synthesis",
     ]
 
