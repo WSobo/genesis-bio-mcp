@@ -1107,6 +1107,150 @@ class ComparisonReport(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# gnomAD — evolutionary constraint
+# ---------------------------------------------------------------------------
+
+
+class GnomADConstraint(BaseModel):
+    """Gene-level evolutionary constraint metrics from gnomAD v4.
+
+    These metrics quantify how much loss-of-function (LoF) and missense mutation
+    the gene tolerates in the human population.  Highly constrained genes (high pLI,
+    low oe_lof/LOEUF) are poor candidates for broad mutagenesis; focus engineering
+    on tolerant regions or use constraint to guide variant selection.
+    """
+
+    gene_symbol: str = Field(description="HGNC gene symbol")
+    ensembl_id: str | None = Field(None, description="Ensembl gene ID (GRCh38)")
+    gene_name: str | None = Field(None, description="Full gene name")
+    constraint_available: bool = Field(
+        description="True if gnomAD constraint data exists for this gene"
+    )
+
+    # LoF constraint
+    pLI: float | None = Field(
+        None,
+        description=(
+            "Probability of loss-of-function intolerance. "
+            ">0.9 = highly intolerant (avoid LoF mutations); <0.1 = tolerant."
+        ),
+    )
+    lof_z: float | None = Field(
+        None,
+        description="LoF Z-score. >3 = significantly constrained against LoF.",
+    )
+    oe_lof: float | None = Field(
+        None,
+        description="Observed/expected LoF variant ratio. Lower = more constrained.",
+    )
+    oe_lof_lower: float | None = Field(
+        None, description="Lower bound of oe_lof 90% confidence interval."
+    )
+    oe_lof_upper: float | None = Field(
+        None,
+        description=(
+            "LOEUF — upper bound of oe_lof confidence interval. "
+            "The most widely used constraint metric; <0.35 = highly constrained."
+        ),
+    )
+    obs_lof: int | None = Field(None, description="Observed LoF variants in gnomAD")
+    exp_lof: float | None = Field(None, description="Expected LoF variants under neutral model")
+
+    # Missense constraint
+    mis_z: float | None = Field(
+        None,
+        description="Missense Z-score. >3 = significantly depleted of missense variation.",
+    )
+    oe_mis: float | None = Field(
+        None,
+        description="Observed/expected missense ratio. <0.6 = significantly constrained.",
+    )
+    obs_mis: int | None = Field(None, description="Observed missense variants in gnomAD")
+    exp_mis: float | None = Field(
+        None, description="Expected missense variants under neutral model"
+    )
+
+    def to_markdown(self) -> str:
+        lines = [f"## gnomAD Constraint — {self.gene_symbol}"]
+        if self.gene_name:
+            lines[0] += f" ({self.gene_name})"
+        if self.ensembl_id:
+            lines.append(f"**Ensembl:** {self.ensembl_id}")
+
+        if not self.constraint_available:
+            lines.append(
+                "\n_No constraint data available in gnomAD for this gene "
+                "(insufficient coverage or too few variants)._"
+            )
+            return "\n".join(lines)
+
+        lines += ["", "### Loss-of-Function Constraint"]
+        lines += [
+            "| Metric | Value | Interpretation |",
+            "|---|---|---|",
+        ]
+        if self.pLI is not None:
+            interp = (
+                "Highly intolerant (avoid LoF)"
+                if self.pLI > 0.9
+                else ("Intermediate" if self.pLI > 0.5 else "Tolerant")
+            )
+            lines.append(f"| **pLI** | {self.pLI:.4f} | {interp} |")
+        if self.oe_lof_upper is not None:
+            loeuf_interp = (
+                "Highly constrained"
+                if self.oe_lof_upper < 0.35
+                else ("Constrained" if self.oe_lof_upper < 0.6 else "Unconstrained")
+            )
+            lines.append(f"| **LOEUF** (oe_lof upper) | {self.oe_lof_upper:.3f} | {loeuf_interp} |")
+        if self.oe_lof is not None:
+            lines.append(f"| oe_lof | {self.oe_lof:.3f} | — |")
+        if self.lof_z is not None:
+            lines.append(
+                f"| LoF Z-score | {self.lof_z:.2f} | {'>3 = constrained' if self.lof_z > 3 else 'Normal'} |"
+            )
+        if self.obs_lof is not None and self.exp_lof is not None:
+            lines.append(f"| obs/exp LoF | {self.obs_lof} / {self.exp_lof:.1f} | — |")
+
+        lines += ["", "### Missense Constraint"]
+        lines += [
+            "| Metric | Value | Interpretation |",
+            "|---|---|---|",
+        ]
+        if self.oe_mis is not None:
+            mis_interp = "Constrained" if self.oe_mis < 0.6 else "Tolerant"
+            lines.append(f"| **oe_mis** | {self.oe_mis:.3f} | {mis_interp} |")
+        if self.mis_z is not None:
+            lines.append(
+                f"| Missense Z-score | {self.mis_z:.2f} | {'>3 = constrained' if self.mis_z > 3 else 'Normal'} |"
+            )
+        if self.obs_mis is not None and self.exp_mis is not None:
+            lines.append(f"| obs/exp missense | {self.obs_mis} / {self.exp_mis:.1f} | — |")
+
+        # Engineering implication
+        lines.append("")
+        if self.pLI is not None and self.oe_lof_upper is not None:
+            if self.pLI > 0.9 or self.oe_lof_upper < 0.35:
+                lines.append(
+                    "**Engineering note:** High constraint — this gene does not tolerate LoF "
+                    "mutations in the population. Focus on tolerant missense positions and avoid "
+                    "disrupting essential domains."
+                )
+            elif self.oe_mis is not None and self.oe_mis < 0.6:
+                lines.append(
+                    "**Engineering note:** Moderate missense constraint. "
+                    "Prefer conservative substitutions; validate fitness experimentally."
+                )
+            else:
+                lines.append(
+                    "**Engineering note:** Relatively unconstrained — tolerates both LoF and "
+                    "missense variation. Broader mutagenesis strategies are feasible."
+                )
+
+        return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # SAbDab — antibody / nanobody structures
 # ---------------------------------------------------------------------------
 

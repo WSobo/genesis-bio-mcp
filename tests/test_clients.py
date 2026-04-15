@@ -9,6 +9,7 @@ from genesis_bio_mcp.clients.biogrid import BioGRIDClient
 from genesis_bio_mcp.clients.clinical_trials import ClinicalTrialsClient
 from genesis_bio_mcp.clients.depmap import DepMapClient
 from genesis_bio_mcp.clients.dgidb import DGIdbClient
+from genesis_bio_mcp.clients.gnomad import GnomADClient
 from genesis_bio_mcp.clients.gwas import GwasClient
 from genesis_bio_mcp.clients.open_targets import OpenTargetsClient
 from genesis_bio_mcp.clients.pubchem import PubChemClient
@@ -1151,3 +1152,118 @@ def test_sabdab_to_markdown():
     assert "2DEF" in md
     assert "VHH" in md
     assert "2.50 Å" in md
+
+
+# ---------------------------------------------------------------------------
+# gnomAD client tests
+# ---------------------------------------------------------------------------
+
+_MOCK_GNOMAD_RESPONSE = {
+    "data": {
+        "gene": {
+            "gene_id": "ENSG00000157764",
+            "name": "B-Raf proto-oncogene, serine/threonine kinase",
+            "canonical_transcript_id": "ENST00000644969",
+            "gnomad_constraint": {
+                "pLI": 0.9999,
+                "lof_z": 7.35,
+                "mis_z": 5.52,
+                "oe_lof": 0.153,
+                "oe_lof_lower": 0.104,
+                "oe_lof_upper": 0.232,
+                "oe_mis": 0.577,
+                "exp_lof": 104.6,
+                "exp_mis": 937.3,
+                "obs_lof": 16,
+                "obs_mis": 541,
+            },
+        }
+    }
+}
+
+_MOCK_GNOMAD_NO_CONSTRAINT = {
+    "data": {
+        "gene": {
+            "gene_id": "ENSG00000123456",
+            "name": "Hypothetical gene",
+            "canonical_transcript_id": None,
+            "gnomad_constraint": None,
+        }
+    }
+}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_gnomad_get_constraint_happy_path(http_client):
+    """Should parse gnomAD constraint response and return GnomADConstraint."""
+    respx.post(url__regex=r"gnomad\.broadinstitute\.org/api").mock(
+        return_value=httpx.Response(200, json=_MOCK_GNOMAD_RESPONSE)
+    )
+    client = GnomADClient(http_client)
+    result = await client.get_constraint("BRAF")
+
+    assert result is not None
+    assert result.constraint_available is True
+    assert result.gene_symbol == "BRAF"
+    assert result.ensembl_id == "ENSG00000157764"
+    assert result.pLI == pytest.approx(0.9999)
+    assert result.oe_lof_upper == pytest.approx(0.232)
+    assert result.obs_lof == 16
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_gnomad_no_constraint_data(http_client):
+    """Returns GnomADConstraint with constraint_available=False when gnomad_constraint is null."""
+    respx.post(url__regex=r"gnomad\.broadinstitute\.org/api").mock(
+        return_value=httpx.Response(200, json=_MOCK_GNOMAD_NO_CONSTRAINT)
+    )
+    client = GnomADClient(http_client)
+    result = await client.get_constraint("FAKEGENE")
+
+    assert result is not None
+    assert result.constraint_available is False
+    assert result.pLI is None
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_gnomad_network_error_returns_none(http_client):
+    """Returns None on network error."""
+    respx.post(url__regex=r"gnomad\.broadinstitute\.org/api").mock(
+        side_effect=httpx.ConnectError("timeout")
+    )
+    client = GnomADClient(http_client)
+    result = await client.get_constraint("BRAF")
+
+    assert result is None
+
+
+def test_gnomad_to_markdown_constrained():
+    """GnomADConstraint.to_markdown includes pLI, LOEUF, and engineering note."""
+    from genesis_bio_mcp.models import GnomADConstraint
+
+    c = GnomADConstraint(
+        gene_symbol="BRAF",
+        ensembl_id="ENSG00000157764",
+        gene_name="B-Raf proto-oncogene",
+        constraint_available=True,
+        pLI=0.9999,
+        lof_z=7.35,
+        mis_z=5.52,
+        oe_lof=0.153,
+        oe_lof_lower=0.104,
+        oe_lof_upper=0.232,
+        oe_mis=0.577,
+        exp_lof=104.6,
+        exp_mis=937.3,
+        obs_lof=16,
+        obs_mis=541,
+    )
+    md = c.to_markdown()
+    assert "BRAF" in md
+    assert "pLI" in md
+    assert "LOEUF" in md
+    assert "Highly constrained" in md
+    assert "Engineering note" in md

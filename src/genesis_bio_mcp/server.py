@@ -1,6 +1,6 @@
 """genesis_bio_mcp MCP server.
 
-Exposes 16 tools for biomedical database queries:
+Exposes 17 tools for biomedical database queries:
   - resolve_gene                  UniProt + NCBI: gene symbol → canonical IDs
   - get_protein_info              UniProt Swiss-Prot protein annotation
   - get_target_disease_association Open Targets: target–disease association score
@@ -12,6 +12,7 @@ Exposes 16 tools for biomedical database queries:
   - get_protein_interactome       STRING: binding partners and selectivity risks
   - get_biogrid_interactions      BioGRID: curated literature PPI network
   - get_antibody_structures       SAbDab: antibody/nanobody structures for an antigen
+  - get_variant_constraints       gnomAD: gene-level LoF and missense constraint metrics
   - get_drug_history              DGIdb + ClinicalTrials.gov: known drugs and trials
   - get_pathway_context           Reactome: pathway membership and enrichment for a gene
   - get_pathway_members           Reactome: enumerate all genes in a named pathway
@@ -44,6 +45,7 @@ from genesis_bio_mcp.clients.chembl import ChEMBLClient
 from genesis_bio_mcp.clients.clinical_trials import ClinicalTrialsClient
 from genesis_bio_mcp.clients.depmap import DepMapClient, load_depmap_cache
 from genesis_bio_mcp.clients.dgidb import DGIdbClient
+from genesis_bio_mcp.clients.gnomad import GnomADClient
 from genesis_bio_mcp.clients.gwas import GwasClient
 from genesis_bio_mcp.clients.open_targets import OpenTargetsClient
 from genesis_bio_mcp.clients.pubchem import PubChemClient
@@ -94,6 +96,7 @@ async def lifespan(server: FastMCP):
         server.state.open_targets = OpenTargetsClient(client)
         server.state.depmap = DepMapClient(client, gene_dep_cache)
         server.state.gwas = GwasClient(client, efo_resolver=EFOResolver(client))
+        server.state.gnomad = GnomADClient(client)
         server.state.pubchem = PubChemClient(client)
         server.state.chembl = ChEMBLClient(client)
         server.state.alphafold = AlphaFoldClient(client)
@@ -200,6 +203,10 @@ class GetProteinInteractomeInput(_GeneInput):
 
 class GetBioGRIDInteractionsInput(_GeneInput):
     """Input for get_biogrid_interactions."""
+
+
+class GetVariantConstraintsInput(_GeneInput):
+    """Input for get_variant_constraints."""
 
 
 class GetAntibodyStructuresInput(BaseModel):
@@ -689,6 +696,36 @@ async def get_antibody_structures(params: GetAntibodyStructuresInput) -> str:
     if params.response_format == "json":
         return result.model_dump_json(indent=2)
     return result.to_markdown()
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    )
+)
+async def get_variant_constraints(params: GetVariantConstraintsInput) -> str:
+    """Retrieve gene-level evolutionary constraint metrics from gnomAD v4.
+
+    Use this tool to understand how much mutation a gene tolerates in the human
+    population before designing variants or selecting engineering targets.  High
+    constraint (pLI > 0.9, LOEUF < 0.35) means the gene does not tolerate
+    loss-of-function — avoid broad mutagenesis and prefer conservative substitutions
+    in well-characterized tolerant regions.  Unconstrained genes (low pLI, oe_mis ≈ 1)
+    support bolder engineering strategies.
+
+    This is a critical pre-filter for any protein engineering campaign: run it before
+    DMS lookup, variant design, or stability engineering.
+
+    Args:
+        params (GetVariantConstraintsInput): gene_symbol, response_format.
+
+    Returns:
+        Markdown with pLI, LOEUF, oe_lof, oe_mis, Z-scores, and an
+        interpretation of engineering implications.
+    """
+    symbol, _ = await _resolve_symbol(params.gene_symbol)
+    result = await mcp.state.gnomad.get_constraint(symbol)
+    return _fmt(result, params.response_format, f"No gnomAD constraint data found for '{symbol}'.")
 
 
 @mcp.tool(

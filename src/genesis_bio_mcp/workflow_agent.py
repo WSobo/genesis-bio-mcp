@@ -38,6 +38,7 @@ Workflow guidance:
 5. Call prioritize_target for a full evidence synthesis and composite score on a specific target–indication pair.
 6. Call compare_targets when ranking 2–5 candidates side by side.
 7. For antibody/nanobody design questions: call get_antibody_structures to find PDB-curated structural templates; use get_protein_structure for the antigen conformation.
+8. For protein engineering questions: call get_variant_constraints first to understand mutation tolerance (pLI/LOEUF); then use get_protein_structure for structural context.
 
 Always synthesize the tool results into a coherent Markdown answer. \
 Cite specific numbers (scores, counts, p-values) from tool outputs.\
@@ -170,6 +171,12 @@ def build_tool_registry(state: Any) -> dict[str, ToolSpec]:
             return f"SAbDab data temporarily unavailable for '{antigen_query}'."
         if result.total_structures == 0:
             return f"No antibody or nanobody structures found in SAbDab for '{antigen_query}'."
+        return result.to_markdown()
+
+    async def _get_variant_constraints_fn(gene_symbol: str) -> str:
+        result = await state.gnomad.get_constraint(gene_symbol)
+        if result is None:
+            return f"No gnomAD constraint data found for '{gene_symbol}'."
         return result.to_markdown()
 
     async def _get_drug_history_fn(gene_symbol: str) -> str:
@@ -532,6 +539,30 @@ def build_tool_registry(state: Any) -> dict[str, ToolSpec]:
                 "CDR engineering, or assessing how well-characterized an antigen is as an antibody target."
             ),
             fn=_get_antibody_structures_fn,
+        ),
+        "get_variant_constraints": ToolSpec(
+            name="get_variant_constraints",
+            description=(
+                "Retrieve gene-level evolutionary constraint metrics from gnomAD v4: pLI, LOEUF, oe_lof, "
+                "oe_mis, Z-scores. Quantifies how much LoF and missense mutation the gene tolerates in the "
+                "human population. Essential pre-filter before any protein engineering campaign."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "gene_symbol": {
+                        "type": "string",
+                        "description": "HGNC gene symbol. Example: 'BRAF'",
+                    }
+                },
+                "required": ["gene_symbol"],
+            },
+            tool_category="protein_engineering",
+            use_when=(
+                "Use before designing mutations or engineering variants to understand which residues "
+                "the gene tolerates losing. High pLI or low LOEUF means avoid broad mutagenesis."
+            ),
+            fn=_get_variant_constraints_fn,
         ),
         "get_drug_history": ToolSpec(
             name="get_drug_history",
