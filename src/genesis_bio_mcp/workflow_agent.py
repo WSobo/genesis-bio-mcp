@@ -37,6 +37,7 @@ Workflow guidance:
 4. Use druggability tools (get_compounds, get_drug_history) to assess chemical tractability and competition.
 5. Call prioritize_target for a full evidence synthesis and composite score on a specific target–indication pair.
 6. Call compare_targets when ranking 2–5 candidates side by side.
+7. For antibody/nanobody design questions: call get_antibody_structures to find PDB-curated structural templates; use get_protein_structure for the antigen conformation.
 
 Always synthesize the tool results into a coherent Markdown answer. \
 Cite specific numbers (scores, counts, p-values) from tool outputs.\
@@ -161,6 +162,14 @@ def build_tool_registry(state: Any) -> dict[str, ToolSpec]:
         result = await state.biogrid.get_interactions(gene_symbol)
         if result is None:
             return f"No BioGRID interaction data found for '{gene_symbol}'."
+        return result.to_markdown()
+
+    async def _get_antibody_structures_fn(antigen_query: str, max_results: int = 20) -> str:
+        result = await state.sabdab.get_antibody_structures(antigen_query, max_results=max_results)
+        if result is None:
+            return f"SAbDab data temporarily unavailable for '{antigen_query}'."
+        if result.total_structures == 0:
+            return f"No antibody or nanobody structures found in SAbDab for '{antigen_query}'."
         return result.to_markdown()
 
     async def _get_drug_history_fn(gene_symbol: str) -> str:
@@ -490,6 +499,39 @@ def build_tool_registry(state: Any) -> dict[str, ToolSpec]:
                 "Complements STRING when you need experimental method details or citation evidence."
             ),
             fn=_get_biogrid_interactions_fn,
+        ),
+        "get_antibody_structures": ToolSpec(
+            name="get_antibody_structures",
+            description=(
+                "Search SAbDab for PDB-curated antibody and nanobody (VHH) structures against a given antigen. "
+                "Returns resolution, experimental method, antibody type (Fab/IgG/VHH), germline subclass, "
+                "engineered flag, and binding affinity where available. Covers both conventional antibodies "
+                "and camelid-derived VHH nanobodies."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "antigen_query": {
+                        "type": "string",
+                        "description": (
+                            "Antigen gene symbol or protein name. "
+                            "Examples: 'EGFR', 'HER2', 'TNF', 'programmed death-ligand 1', 'CD20'."
+                        ),
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum structures to return (default 20).",
+                        "default": 20,
+                    },
+                },
+                "required": ["antigen_query"],
+            },
+            tool_category="antibody",
+            use_when=(
+                "Use when designing antibody or nanobody therapeutics, finding structural templates for "
+                "CDR engineering, or assessing how well-characterized an antigen is as an antibody target."
+            ),
+            fn=_get_antibody_structures_fn,
         ),
         "get_drug_history": ToolSpec(
             name="get_drug_history",

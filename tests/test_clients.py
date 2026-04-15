@@ -13,6 +13,7 @@ from genesis_bio_mcp.clients.gwas import GwasClient
 from genesis_bio_mcp.clients.open_targets import OpenTargetsClient
 from genesis_bio_mcp.clients.pubchem import PubChemClient
 from genesis_bio_mcp.clients.reactome import ReactomeClient
+from genesis_bio_mcp.clients.sabdab import SAbDabClient
 from genesis_bio_mcp.clients.string_db import StringDbClient
 from genesis_bio_mcp.clients.uniprot import UniProtClient
 from genesis_bio_mcp.config.efo_resolver import EFOResolver, EFOTerm
@@ -966,3 +967,187 @@ def test_filter_by_trait_unknown_indication_direct_substring():
 
     assert len(result) == 1
     assert result[0].trait == "autoimmune thyroid disease"
+
+
+# ---------------------------------------------------------------------------
+# SAbDab client tests
+# ---------------------------------------------------------------------------
+
+_MOCK_SABDAB_TSV = (
+    "pdb\tHchain\tLchain\tmodel\tantigen_chain\tantigen_type\tantigen_het_name\t"
+    "antigen_name\tshort_header\tdate\tcompound\torganism\theavy_species\tlight_species\t"
+    "antigen_species\tauthors\tresolution\tmethod\tr_free\tr_factor\tscfv\tengineered\t"
+    "heavy_subclass\tlight_subclass\tlight_ctype\taffinity\tdelta_g\taffinity_method\t"
+    "temperature\tpmid\n"
+    "1abc\tH\tL\t0\tA\tprotein\tNA\tepidermal growth factor receptor\tIMMUNE SYSTEM\t"
+    "01/01/20\tAnti-EGFR antibody complex\tHomo sapiens\thomo sapiens\thomo sapiens\t"
+    "homo sapiens\tSmith, J.\t2.5\tX-RAY DIFFRACTION\t0.21\t0.18\tFalse\tTrue\t"
+    "IGHV3\tIGKV1\tKappa\t5.2\tNone\tITC\t25\t12345678\n"
+    "2def\tH\tNA\t0\tA\tprotein\tNA\tepidermal growth factor receptor\tIMMUNE SYSTEM\t"
+    "06/15/21\tEGFR nanobody VHH complex\tLama glama\tlama glama\t\t"
+    "homo sapiens\tJones, A.\t3.1\tELECTRON MICROSCOPY\tNA\tNA\tFalse\tTrue\t"
+    "IGHV1\tNA\tNA\tNone\tNone\tNone\tNone\tNone\n"
+    "3ghi\tH\tL\t0\tB\tprotein\tNA\ttumor necrosis factor\tIMMUNE SYSTEM\t"
+    "03/10/22\tAnti-TNF Fab fragment\tHomo sapiens\thomo sapiens\thomo sapiens\t"
+    "homo sapiens\tBrown, K.\t1.9\tX-RAY DIFFRACTION\t0.19\t0.16\tFalse\tTrue\t"
+    "IGHV1\tIGLV2\tLambda\tNone\tNone\tNone\tNone\t99999999\n"
+)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_sabdab_get_antibody_structures_happy_path(http_client, tmp_path, monkeypatch):
+    """Should parse TSV, filter by antigen name, and return AntibodyStructures."""
+    monkeypatch.setattr(
+        "genesis_bio_mcp.clients.sabdab.settings.sabdab_cache_path",
+        tmp_path / "sabdab_cache.tsv",
+    )
+    monkeypatch.setattr(
+        "genesis_bio_mcp.clients.sabdab.settings.sabdab_cache_ttl_secs",
+        604800,
+    )
+
+    respx.get(url__regex=r"sabdab-sabpred.*summary").mock(
+        return_value=httpx.Response(200, content=_MOCK_SABDAB_TSV.encode())
+    )
+
+    client = SAbDabClient(http_client)
+    result = await client.get_antibody_structures("egfr")
+
+    assert result is not None
+    assert result.total_structures == 2
+    assert result.nanobody_count == 1
+    assert result.fab_count == 1
+    # Best resolution (2.5 Å X-ray) should be first
+    assert result.structures[0].pdb == "1ABC"
+    assert result.structures[0].is_nanobody is False
+    assert result.structures[0].resolution_ang == pytest.approx(2.5)
+    assert result.structures[0].is_engineered is True
+    assert result.structures[0].affinity_nM == pytest.approx(5.2)
+    # Second is the VHH
+    assert result.structures[1].pdb == "2DEF"
+    assert result.structures[1].is_nanobody is True
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_sabdab_empty_results(http_client, tmp_path, monkeypatch):
+    """Returns AntibodyStructures with total_structures=0 when no match."""
+    monkeypatch.setattr(
+        "genesis_bio_mcp.clients.sabdab.settings.sabdab_cache_path",
+        tmp_path / "sabdab_cache.tsv",
+    )
+    monkeypatch.setattr(
+        "genesis_bio_mcp.clients.sabdab.settings.sabdab_cache_ttl_secs",
+        604800,
+    )
+
+    respx.get(url__regex=r"sabdab-sabpred.*summary").mock(
+        return_value=httpx.Response(200, content=_MOCK_SABDAB_TSV.encode())
+    )
+
+    client = SAbDabClient(http_client)
+    result = await client.get_antibody_structures("nonexistent_target_xyz")
+
+    assert result is not None
+    assert result.total_structures == 0
+    assert result.structures == []
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_sabdab_download_failure_returns_none(http_client, tmp_path, monkeypatch):
+    """Returns None when download fails and no disk cache exists."""
+    monkeypatch.setattr(
+        "genesis_bio_mcp.clients.sabdab.settings.sabdab_cache_path",
+        tmp_path / "sabdab_cache.tsv",
+    )
+    monkeypatch.setattr(
+        "genesis_bio_mcp.clients.sabdab.settings.sabdab_cache_ttl_secs",
+        604800,
+    )
+
+    respx.get(url__regex=r"sabdab-sabpred.*summary").mock(return_value=httpx.Response(500))
+
+    client = SAbDabClient(http_client)
+    result = await client.get_antibody_structures("egfr")
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_sabdab_uses_disk_cache(http_client, tmp_path, monkeypatch):
+    """If a fresh disk cache exists, no HTTP request is made."""
+    cache_path = tmp_path / "sabdab_cache.tsv"
+    cache_path.write_bytes(_MOCK_SABDAB_TSV.encode())
+
+    monkeypatch.setattr(
+        "genesis_bio_mcp.clients.sabdab.settings.sabdab_cache_path",
+        cache_path,
+    )
+    monkeypatch.setattr(
+        "genesis_bio_mcp.clients.sabdab.settings.sabdab_cache_ttl_secs",
+        604800,
+    )
+
+    client = SAbDabClient(http_client)
+    result = await client.get_antibody_structures("tnf")
+
+    assert result is not None
+    assert result.total_structures == 1
+    assert result.structures[0].pdb == "3GHI"
+
+
+def test_sabdab_to_markdown():
+    """AntibodyStructures.to_markdown returns a non-empty string with expected content."""
+    from genesis_bio_mcp.models import AntibodyStructure, AntibodyStructures
+
+    structures = [
+        AntibodyStructure(
+            pdb="1ABC",
+            is_nanobody=False,
+            antigen_name="epidermal growth factor receptor",
+            resolution_ang=2.5,
+            method="X-RAY DIFFRACTION",
+            heavy_species="homo sapiens",
+            light_species="homo sapiens",
+            heavy_subclass="IGHV3",
+            light_subclass="IGKV1",
+            is_engineered=True,
+            is_scfv=False,
+            affinity_nM=5.2,
+            compound="Anti-EGFR Fab",
+            date_added="01/01/20",
+            pmid="12345678",
+        ),
+        AntibodyStructure(
+            pdb="2DEF",
+            is_nanobody=True,
+            antigen_name="epidermal growth factor receptor",
+            resolution_ang=3.1,
+            method="ELECTRON MICROSCOPY",
+            heavy_species="lama glama",
+            light_species=None,
+            heavy_subclass="IGHV1",
+            light_subclass=None,
+            is_engineered=True,
+            is_scfv=False,
+            affinity_nM=None,
+            compound="EGFR VHH nanobody",
+            date_added="06/15/21",
+            pmid=None,
+        ),
+    ]
+    result = AntibodyStructures(
+        query="EGFR",
+        total_structures=2,
+        nanobody_count=1,
+        fab_count=1,
+        structures=structures,
+    )
+    md = result.to_markdown()
+    assert "EGFR" in md
+    assert "1ABC" in md
+    assert "2DEF" in md
+    assert "VHH" in md
+    assert "2.50 Å" in md

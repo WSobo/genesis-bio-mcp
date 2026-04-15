@@ -38,6 +38,8 @@ class Settings(BaseSettings):
         GENESIS_CHEMBL_SEMAPHORE_LIMIT   — int (default 2)
         GENESIS_PUBCHEM_SEMAPHORE_LIMIT  — int (default 3)
         GENESIS_REACTOME_SEMAPHORE_LIMIT — int (default 3)
+        GENESIS_SABDAB_CACHE_PATH     — path string (default data/sabdab_cache.tsv)
+        GENESIS_SABDAB_CACHE_TTL_SECS — int, seconds (default 604800 = 7 days)
         GENESIS_CLAUDE_MODEL          — string (default claude-sonnet-4-6)
     """
 
@@ -122,6 +124,20 @@ class Settings(BaseSettings):
     reactome_semaphore_limit: int = Field(
         default=3,
         description="Max concurrent requests to Reactome AnalysisService / ContentService.",
+        gt=0,
+    )
+
+    # ---------------------------------------------------------------------------
+    # SAbDab cache
+    # ---------------------------------------------------------------------------
+
+    sabdab_cache_path: Path = Field(
+        default=Path("data/sabdab_cache.tsv"),
+        description="Disk cache path for the SAbDab summary TSV.",
+    )
+    sabdab_cache_ttl_secs: int = Field(
+        default=604800,
+        description="TTL in seconds for the SAbDab disk cache (default 7 days).",
         gt=0,
     )
 

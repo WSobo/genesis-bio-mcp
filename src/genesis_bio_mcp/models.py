@@ -1104,3 +1104,103 @@ class ComparisonReport(BaseModel):
             lines += [f"### {row.gene_symbol}", row.evidence_summary, ""]
 
         return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# SAbDab — antibody / nanobody structures
+# ---------------------------------------------------------------------------
+
+
+class AntibodyStructure(BaseModel):
+    """A single antibody or nanobody (VHH) structure from SAbDab."""
+
+    pdb: str = Field(description="PDB accession, e.g. '7KMG'")
+    is_nanobody: bool = Field(
+        description="True if this is a VHH/nanobody (single-domain, no light chain)"
+    )
+    antigen_name: str | None = Field(None, description="Antigen name as annotated in SAbDab")
+    resolution_ang: float | None = Field(
+        None, description="Crystal/cryo-EM resolution in Ångströms (lower = better)"
+    )
+    method: str | None = Field(
+        None, description="Experimental method: X-RAY DIFFRACTION | ELECTRON MICROSCOPY | NMR"
+    )
+    heavy_species: str | None = Field(
+        None, description="Species of the heavy chain (antibody organism)"
+    )
+    light_species: str | None = Field(
+        None, description="Species of the light chain; None for nanobodies"
+    )
+    heavy_subclass: str | None = Field(None, description="IGHV germline family, e.g. 'IGHV3'")
+    light_subclass: str | None = Field(
+        None, description="IGKV/IGLV germline family; None for nanobodies"
+    )
+    is_engineered: bool = Field(
+        description="True if the antibody sequence is engineered / recombinant"
+    )
+    is_scfv: bool = Field(description="True if this is a single-chain Fv fragment")
+    affinity_nM: float | None = Field(
+        None, description="Binding affinity in nM if experimentally measured"
+    )
+    compound: str | None = Field(None, description="PDB compound description")
+    date_added: str | None = Field(None, description="Date added to SAbDab (MM/DD/YY)")
+    pmid: str | None = Field(None, description="PubMed ID of the source publication")
+
+
+class AntibodyStructures(BaseModel):
+    """SAbDab search results: antibody and nanobody structures for an antigen."""
+
+    query: str = Field(description="Antigen query string used to search SAbDab")
+    total_structures: int = Field(description="Total structures matching the query")
+    nanobody_count: int = Field(description="Number of VHH/nanobody entries in the results")
+    fab_count: int = Field(description="Number of conventional Fab/IgG entries in the results")
+    structures: list[AntibodyStructure] = Field(
+        default_factory=list,
+        description="Top structures sorted by resolution (best first)",
+    )
+
+    def to_markdown(self) -> str:
+        lines = [
+            f"## Antibody Structures — {self.query}",
+            f"**{self.total_structures} structures** | "
+            f"{self.fab_count} Fab/IgG | {self.nanobody_count} nanobody (VHH)",
+        ]
+        if not self.structures:
+            lines.append("\n_No antibody or nanobody structures found in SAbDab for this query._")
+            return "\n".join(lines)
+
+        lines += [
+            "",
+            "| PDB | Type | Resolution | Method | Ab Species | Subclass | Engineered | Affinity (nM) |",
+            "|---|---|---|---|---|---|---|---|",
+        ]
+        for s in self.structures:
+            ab_type = "VHH" if s.is_nanobody else ("scFv" if s.is_scfv else "Fab/IgG")
+            res = f"{s.resolution_ang:.2f} Å" if s.resolution_ang else "—"
+            method = (s.method or "—")[:12]
+            species = (s.heavy_species or "—")[:20]
+            subclass = s.heavy_subclass or "—"
+            eng = "Yes" if s.is_engineered else "No"
+            aff = f"{s.affinity_nM:.1f}" if s.affinity_nM else "—"
+            lines.append(
+                f"| **{s.pdb}** | {ab_type} | {res} | {method} | {species} | {subclass} | {eng} | {aff} |"
+            )
+
+        # Surface key insights
+        best = self.structures[0]
+        insights: list[str] = []
+        if best.resolution_ang:
+            insights.append(f"Best resolution: **{best.pdb}** at {best.resolution_ang:.2f} Å")
+        if self.nanobody_count > 0:
+            insights.append(
+                f"{self.nanobody_count} VHH nanobod{'ies' if self.nanobody_count > 1 else 'y'} available"
+            )
+        affinities = [s.affinity_nM for s in self.structures if s.affinity_nM is not None]
+        if affinities:
+            best_aff = min(affinities)
+            insights.append(f"Best measured affinity: {best_aff:.1f} nM")
+
+        if insights:
+            lines += ["", "**Key insights:** " + " | ".join(insights)]
+
+        return "\n".join(lines)

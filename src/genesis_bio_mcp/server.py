@@ -1,6 +1,6 @@
 """genesis_bio_mcp MCP server.
 
-Exposes 15 tools for biomedical database queries:
+Exposes 16 tools for biomedical database queries:
   - resolve_gene                  UniProt + NCBI: gene symbol → canonical IDs
   - get_protein_info              UniProt Swiss-Prot protein annotation
   - get_target_disease_association Open Targets: target–disease association score
@@ -11,6 +11,7 @@ Exposes 15 tools for biomedical database queries:
   - get_protein_structure         AlphaFold + RCSB PDB: structural data
   - get_protein_interactome       STRING: binding partners and selectivity risks
   - get_biogrid_interactions      BioGRID: curated literature PPI network
+  - get_antibody_structures       SAbDab: antibody/nanobody structures for an antigen
   - get_drug_history              DGIdb + ClinicalTrials.gov: known drugs and trials
   - get_pathway_context           Reactome: pathway membership and enrichment for a gene
   - get_pathway_members           Reactome: enumerate all genes in a named pathway
@@ -47,6 +48,7 @@ from genesis_bio_mcp.clients.gwas import GwasClient
 from genesis_bio_mcp.clients.open_targets import OpenTargetsClient
 from genesis_bio_mcp.clients.pubchem import PubChemClient
 from genesis_bio_mcp.clients.reactome import ReactomeClient
+from genesis_bio_mcp.clients.sabdab import SAbDabClient
 from genesis_bio_mcp.clients.string_db import StringDbClient
 from genesis_bio_mcp.clients.uniprot import UniProtClient
 from genesis_bio_mcp.config.efo_resolver import EFOResolver
@@ -97,6 +99,7 @@ async def lifespan(server: FastMCP):
         server.state.alphafold = AlphaFoldClient(client)
         server.state.string_db = StringDbClient(client)
         server.state.biogrid = BioGRIDClient(client)
+        server.state.sabdab = SAbDabClient(client)
         server.state.dgidb = DGIdbClient(client)
         server.state.clinical_trials = ClinicalTrialsClient(client)
         server.state.reactome = ReactomeClient(client)
@@ -197,6 +200,29 @@ class GetProteinInteractomeInput(_GeneInput):
 
 class GetBioGRIDInteractionsInput(_GeneInput):
     """Input for get_biogrid_interactions."""
+
+
+class GetAntibodyStructuresInput(BaseModel):
+    """Input for get_antibody_structures."""
+
+    model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True, extra="forbid")
+    antigen_query: str = Field(
+        ...,
+        description=(
+            "Antigen gene symbol or protein name to search for in SAbDab. "
+            "Examples: 'EGFR', 'HER2', 'TNF', 'epidermal growth factor receptor', "
+            "'programmed death-ligand 1', 'CD20'. Case-insensitive substring match."
+        ),
+        min_length=1,
+        max_length=200,
+    )
+    max_results: int = Field(
+        default=20,
+        description="Maximum number of structures to return (default 20).",
+        ge=1,
+        le=100,
+    )
+    response_format: Literal["markdown", "json"] = _RESPONSE_FORMAT_FIELD
 
 
 class GetDrugHistoryInput(_GeneInput):
@@ -625,6 +651,44 @@ async def get_biogrid_interactions(params: GetBioGRIDInteractionsInput) -> str:
         params.response_format,
         f"No BioGRID interaction data found for '{symbol}'.",
     )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    )
+)
+async def get_antibody_structures(params: GetAntibodyStructuresInput) -> str:
+    """Retrieve antibody and nanobody (VHH) structures from SAbDab for a given antigen.
+
+    Use this tool when designing or evaluating antibody or nanobody therapeutics, or when
+    you need PDB-curated structural templates of antibodies bound to a target antigen.
+    SAbDab provides CDR-annotated structures for both conventional Fabs/IgGs and VHH
+    single-domain nanobodies.
+
+    Searches antigen_name, compound, and antigen description fields (case-insensitive
+    substring match).  No API key required; results are cached locally for 7 days.
+
+    Args:
+        params (GetAntibodyStructuresInput): antigen_query, max_results, response_format.
+
+    Returns:
+        Markdown table of matching antibody/nanobody structures sorted by resolution
+        (best first), including PDB ID, type (Fab/VHH/scFv), resolution, experimental
+        method, antibody species, germline subclass, engineered flag, and measured affinity
+        where available.
+    """
+    result = await mcp.state.sabdab.get_antibody_structures(
+        params.antigen_query, max_results=params.max_results
+    )
+    if result is None:
+        return (
+            f"SAbDab data temporarily unavailable for '{params.antigen_query}'. "
+            "The SAbDab summary TSV could not be downloaded. Try again later."
+        )
+    if params.response_format == "json":
+        return result.model_dump_json(indent=2)
+    return result.to_markdown()
 
 
 @mcp.tool(
