@@ -7,6 +7,29 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.4] — 2026-04-17
+
+Polish release addressing six issues surfaced by a JAK2 end-to-end evaluation. All fixes use dynamic, structural solutions (EFO URIs, activity_outcome fallback, token-prefix dedup) rather than hardcoded per-trait/per-drug vocabulary.
+
+### Fixed
+
+- **GWAS trait matching** — `EFOResolver.resolve()` now hierarchy-expands each resolved term via OLS4's `allChildrenOf` + `ancestorsOf` filters and stores the URI set on `EFOTerm.related_uris`. `filter_by_trait` matches hits against the expanded set, so `"polycythemia vera"` catches JAK2 studies tagged with `"myeloproliferative neoplasm"` (direct EFO parent), and `"myeloproliferative"` catches studies tagged with specific subtypes (EFO descendants). No new hardcoded synonyms; the fix generalizes to any indication EFO covers.
+- **`get_compounds` blank Activity column** — `Compounds.to_markdown` now falls back to `activity_outcome` ("Active") when PubChem's concise endpoint omits the Activity Name cell for some assay rows.
+- **`get_antibody_structures` "0.0 nM" summary** — `_parse_float` now rejects zero, negative, and non-finite values; the summary filter requires `> 0`, so the "Best measured affinity" insight is omitted rather than rendered as `0.0 nM` when affinities are unreported.
+- **`get_drug_history` salt-form duplicates** — new `_collapse_salt_forms()` merges DGIdb records whose `drug_name`'s first whitespace token matches a shorter single-token record's full name (pharma salt convention, e.g. `FILGOTINIB` + `FILGOTINIB MALEATE` → one row). No hardcoded salt vocabulary.
+- **`get_pathway_context` duplicate pathway names** — `_parse_pathways` now runs a second-pass dedup on `display_name` (case-insensitive), keeping the row with the smallest p-value. Reactome stable IDs are appended to the rendered pathway name so any residual duplicates are visually distinguishable.
+
+### Added
+
+- **`compare_targets` per-row score breakdown** — new `ScoreBreakdown` model capturing contributions from each of the six scoring axes (OT, DepMap, GWAS, known-drug, chem matter, protein). `_compute_score` returns the breakdown; it's stored on `TargetPrioritizationReport` and `TargetComparisonRow`, and `ComparisonReport.to_markdown` renders a compact per-row line (`OT 2.3 · Dep 1.2 · GWAS 0.0 · Drug 1.1 · Chem 1.5 · Prot 0.6`). Makes rankings auditable — a target with the highest OT score that ranks below peers now shows exactly which axes its peers won on.
+- Eight targeted regression tests in `tests/test_clients.py` covering each fix above (EFO hierarchy expansion, URI-set matching, salt-form merging, pathway name dedup, compounds fallback, antibody affinity guard, score breakdown invariant).
+
+### Changed
+
+- Version bumped to `0.2.4`; `EFOTerm` gains a `related_uris: list[str]` field (default empty, persisted in the 7-day EFO disk cache).
+
+---
+
 ## [Unreleased] — v0.1.5
 
 ### Added
