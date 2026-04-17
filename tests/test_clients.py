@@ -779,6 +779,51 @@ async def test_dgidb_returns_empty_on_no_data(http_client):
     assert result == []
 
 
+_MOCK_DGIDB_SALT_FORMS = {
+    "data": {
+        "genes": {
+            "nodes": [
+                {
+                    "name": "JAK2",
+                    "interactions": [
+                        {
+                            "drug": {"name": "FILGOTINIB", "approved": True},
+                            "interactionTypes": [{"type": "inhibitor"}],
+                            "interactionClaims": [{"source": {"sourceDbName": "ChEMBL"}}],
+                        },
+                        {
+                            "drug": {"name": "FILGOTINIB MALEATE", "approved": True},
+                            "interactionTypes": [{"type": "inhibitor"}],
+                            "interactionClaims": [{"source": {"sourceDbName": "DrugBank"}}],
+                        },
+                    ],
+                }
+            ]
+        }
+    }
+}
+
+
+@respx.mock
+async def test_dgidb_collapses_salt_forms(http_client):
+    """FILGOTINIB + FILGOTINIB MALEATE are the same molecule (free base + salt).
+
+    DGIdb returns them as distinct records, double-counting the same INN. The
+    token-prefix dedup in _collapse_salt_forms merges the salt row into the
+    parent, unioning sources.
+    """
+    respx.post("https://dgidb.org/api/graphql").mock(
+        return_value=httpx.Response(200, json=_MOCK_DGIDB_SALT_FORMS)
+    )
+    client = DGIdbClient(http_client)
+    result = await client.get_drug_interactions("JAK2")
+
+    assert len(result) == 1
+    assert result[0].drug_name == "FILGOTINIB"
+    # Sources are unioned across the parent and merged salt form
+    assert set(result[0].sources) == {"ChEMBL", "DrugBank"}
+
+
 # ---------------------------------------------------------------------------
 # ClinicalTrials.gov client tests
 # ---------------------------------------------------------------------------
@@ -955,6 +1000,41 @@ async def test_reactome_dedups_pathways_by_stid(http_client):
     # First-occurrence wins: gene_count from the first row preserved
     raf = next(p for p in result.pathways if p.reactome_id == "R-HSA-5673001")
     assert raf.gene_count == 42
+
+
+@respx.mock
+async def test_reactome_dedups_pathways_by_display_name(http_client):
+    """Reactome sometimes returns parent + child pathways with the same
+    display_name under different stable IDs (e.g. different organism scopes
+    or refined annotations). Second-pass dedup keeps the row with the
+    smallest p-value."""
+    dup_name_response = {
+        "summary": {"token": "tok", "type": "OVERREPRESENTATION"},
+        "pathways": [
+            {
+                # Larger p-value — must be dropped
+                "stId": "R-HSA-4",
+                "name": "IFNG signaling activates MAPKs",
+                "entities": {"pValue": 5e-3, "total": 100},
+            },
+            {
+                # Smaller p-value — must win
+                "stId": "R-HSA-5",
+                "name": "IFNG signaling activates MAPKs",
+                "entities": {"pValue": 1e-8, "total": 80},
+            },
+        ],
+    }
+    respx.post(url__regex=r"reactome\.org/AnalysisService/identifiers").mock(
+        return_value=httpx.Response(200, json=dup_name_response)
+    )
+    client = ReactomeClient(http_client)
+    result = await client.get_pathway_context("JAK2")
+    assert result is not None
+    assert len(result.pathways) == 1
+    kept = result.pathways[0]
+    assert kept.p_value == 1e-8
+    assert kept.reactome_id == "R-HSA-5"
 
 
 @respx.mock
@@ -1191,6 +1271,62 @@ async def test_efo_resolver_falls_back_on_ols_failure(http_client):
 
 
 @respx.mock
+async def test_efo_resolver_expands_hierarchy(http_client):
+    """Resolved terms must be hierarchy-expanded so URI matching catches studies
+    tagged with sibling/parent/descendant EFO terms — e.g. a "polycythemia vera"
+    query matches JAK2 associations tagged with "myeloproliferative neoplasm"
+    (its direct EFO parent)."""
+
+    # First call (no filter) returns the primary match. Subsequent calls carry
+    # an allChildrenOf / ancestorsOf filter — distinguish them by URL query.
+    def side_effect(request):
+        url = str(request.url)
+        if "allChildrenOf" in url:
+            return httpx.Response(
+                200,
+                json={
+                    "response": {
+                        "docs": [
+                            {"iri": "http://www.ebi.ac.uk/efo/EFO_DESC_1"},
+                            {"iri": "http://www.ebi.ac.uk/efo/EFO_DESC_2"},
+                        ]
+                    }
+                },
+            )
+        if "ancestorsOf" in url:
+            return httpx.Response(
+                200,
+                json={"response": {"docs": [{"iri": "http://www.ebi.ac.uk/efo/EFO_ANC_1"}]}},
+            )
+        return httpx.Response(
+            200,
+            json={
+                "response": {
+                    "docs": [
+                        {
+                            "iri": "http://www.ebi.ac.uk/efo/EFO_PRIMARY",
+                            "label": "polycythemia vera",
+                            "synonym": [],
+                        }
+                    ]
+                }
+            },
+        )
+
+    respx.get(url__regex=r"ols4/api/search").mock(side_effect=side_effect)
+    resolver = EFOResolver(http_client, cache_path=None)
+    terms = await resolver.resolve("polycythemia vera")
+
+    assert len(terms) == 1
+    related = set(terms[0].related_uris)
+    assert "http://www.ebi.ac.uk/efo/EFO_DESC_1" in related
+    assert "http://www.ebi.ac.uk/efo/EFO_DESC_2" in related
+    assert "http://www.ebi.ac.uk/efo/EFO_ANC_1" in related
+    # The primary URI must not appear in related_uris (self excluded)
+    assert "http://www.ebi.ac.uk/efo/EFO_PRIMARY" not in related
+
+
+@respx.mock
 async def test_efo_resolver_session_cache_prevents_duplicate_calls(http_client):
     call_count = 0
 
@@ -1203,9 +1339,12 @@ async def test_efo_resolver_session_cache_prevents_duplicate_calls(http_client):
     resolver = EFOResolver(http_client, cache_path=None)
 
     await resolver.resolve("obesity")
+    calls_after_first = call_count
     await resolver.resolve("obesity")  # second call — must hit session cache
 
-    assert call_count == 1
+    # Session cache prevents any additional OLS4 traffic on the second resolve,
+    # including the hierarchy-expansion calls (allChildrenOf/ancestorsOf per term).
+    assert call_count == calls_after_first
 
 
 # ---------------------------------------------------------------------------
@@ -1293,6 +1432,34 @@ def test_filter_by_trait_biomarker_query_ldl_cholesterol():
     assert "Low density lipoprotein cholesterol levels" in traits
     assert "LDL cholesterol levels" in traits
     assert "type 2 diabetes" not in traits
+
+
+def test_filter_by_trait_matches_on_related_uris():
+    """A hit tagged with a parent/descendant EFO URI must match when the user
+    query's resolved EFO term has that URI in ``related_uris``. This is the
+    fix for JAK2 × 'polycythemia vera' — studies tagged with MPN (parent)
+    now match via structural identity, not free-text substring."""
+    hits = [
+        _make_hit(
+            "Myeloproliferative neoplasm",
+            efo_uri="http://www.ebi.ac.uk/efo/EFO_0000538",  # parent of polycythemia vera
+        ),
+        _make_hit(
+            "Type 2 diabetes",
+            efo_uri="http://www.ebi.ac.uk/efo/EFO_0000400",
+        ),
+    ]
+    efo_terms = [
+        EFOTerm(
+            uri="http://www.ebi.ac.uk/efo/EFO_0004254",  # polycythemia vera itself
+            label="polycythemia vera",
+            synonyms=[],
+            related_uris=["http://www.ebi.ac.uk/efo/EFO_0000538"],  # MPN parent
+        )
+    ]
+    result = filter_by_trait(hits, "polycythemia vera", efo_terms=efo_terms)
+    assert len(result) == 1
+    assert result[0].trait == "Myeloproliferative neoplasm"
 
 
 def test_filter_by_trait_synonyms_additive_to_efo():
@@ -1483,6 +1650,139 @@ async def test_sabdab_uses_disk_cache(http_client, tmp_path, monkeypatch):
     assert result is not None
     assert result.total_structures == 1
     assert result.structures[0].pdb == "3GHI"
+
+
+def test_sabdab_affinity_insight_skipped_when_all_null():
+    """When no structure has a positive measured affinity, the 'Best measured
+    affinity' insight line must be omitted — NOT rendered as '0.0 nM'."""
+    from genesis_bio_mcp.models import AntibodyStructure, AntibodyStructures
+
+    structures = [
+        AntibodyStructure(
+            pdb="5PDL",
+            is_nanobody=False,
+            antigen_name="programmed cell death 1 ligand 1",
+            resolution_ang=2.0,
+            method="X-RAY DIFFRACTION",
+            heavy_species="homo sapiens",
+            light_species="homo sapiens",
+            heavy_subclass=None,
+            light_subclass=None,
+            is_engineered=True,
+            is_scfv=False,
+            affinity_nM=None,
+            compound=None,
+            date_added=None,
+            pmid=None,
+        ),
+    ]
+    result = AntibodyStructures(
+        query="PD-L1",
+        total_structures=1,
+        nanobody_count=0,
+        fab_count=1,
+        structures=structures,
+    )
+    md = result.to_markdown()
+    assert "0.0 nM" not in md
+    assert "Best measured affinity" not in md
+
+
+def test_sabdab_parse_float_rejects_zero_and_negative():
+    """_parse_float must return None for zero / negative / non-finite values so
+    they don't leak into the affinity aggregation."""
+    from genesis_bio_mcp.clients.sabdab import _parse_float
+
+    assert _parse_float("5.2") == 5.2
+    assert _parse_float("0") is None
+    assert _parse_float("0.0") is None
+    assert _parse_float("-1.5") is None
+    assert _parse_float("") is None
+    assert _parse_float("NA") is None
+
+
+def test_compounds_activity_falls_back_to_outcome():
+    """PubChem concise rows without an 'Activity Name' cell render activity_type
+    as None; Compounds.to_markdown must fall back to activity_outcome ('Active')
+    rather than a bare em-dash."""
+    from genesis_bio_mcp.models import CompoundActivity, Compounds
+
+    compounds = Compounds(
+        gene_symbol="JAK2",
+        total_active_compounds=1,
+        compounds=[
+            CompoundActivity(
+                cid=12345,
+                name="hypothetical-kinase-inhibitor",
+                molecular_formula="C20H20N4O",
+                molecular_weight=356.4,
+                activity_outcome="Active",
+                activity_value=45.0,
+                activity_type=None,  # PubChem concise row missing Activity Name
+                assay_id=None,
+            )
+        ],
+    )
+    md = compounds.to_markdown()
+    # The Activity cell should be "Active" (outcome fallback), not a bare "—"
+    assert "| Active |" in md
+
+
+def test_score_breakdown_sums_to_priority_score():
+    """_compute_score's breakdown contributions must sum (before 10.0 cap) to
+    the reported priority_score. This is the auditability invariant that
+    compare_targets rendering relies on."""
+    from genesis_bio_mcp.models import (
+        CancerDependency,
+        GwasEvidence,
+        TargetDiseaseAssociation,
+    )
+    from genesis_bio_mcp.tools.target_prioritization import _compute_score
+
+    disease_assoc = TargetDiseaseAssociation(
+        gene_symbol="JAK2",
+        disease_name="polycythemia vera",
+        disease_efo_id="EFO_0004254",
+        ensembl_id="ENSG00000096968",
+        overall_score=0.75,
+        evidence_count=42,
+        known_drug_score=0.9,
+        genetic_association_score=0.6,
+    )
+    cancer_dep = CancerDependency(
+        gene_symbol="JAK2",
+        mean_ceres_score=-0.2,
+        fraction_dependent_lines=0.1,
+        top_dependent_lineages=["Blood"],
+        pan_essential=False,
+        data_source="DepMap Chronos",
+    )
+    gwas_ev = GwasEvidence(
+        gene_symbol="JAK2",
+        trait_query="polycythemia vera",
+        total_associations=5,
+        associations=[],
+        strongest_p_value=1e-15,
+    )
+    total, breakdown = _compute_score(
+        disease_assoc,
+        cancer_dep,
+        gwas_ev,
+        None,
+        None,
+        None,
+        indication="polycythemia vera",
+    )
+    # Breakdown.total is the pre-cap sum; priority_score is min(total, 10.0)
+    assert abs(breakdown.total - total) < 1e-6 or breakdown.total >= 10.0
+    # Non-zero axes present for populated inputs
+    assert breakdown.ot > 0
+    assert breakdown.depmap > 0
+    assert breakdown.gwas > 0
+    assert breakdown.known_drug > 0
+    # And unpopulated axes are zero
+    assert breakdown.chem_matter == 0.0
+    assert breakdown.protein == 0.0
 
 
 def test_sabdab_to_markdown():

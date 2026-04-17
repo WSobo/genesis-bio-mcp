@@ -121,7 +121,7 @@ def _parse_interactions(body: dict) -> list[DrugInteraction]:
 
     # Sort: approved first, then direct interaction types, then alphabetical.
     # This surfaces confirmed inhibitors/modulators before substrate/inducer noise.
-    return sorted(
+    ordered = sorted(
         seen.values(),
         key=lambda d: (
             not d.approved,
@@ -129,3 +129,51 @@ def _parse_interactions(body: dict) -> list[DrugInteraction]:
             d.drug_name.lower(),
         ),
     )
+    return _collapse_salt_forms(ordered)
+
+
+def _collapse_salt_forms(drugs: list[DrugInteraction]) -> list[DrugInteraction]:
+    """Merge records where one drug_name is a token-prefix of another.
+
+    DGIdb reports salt forms as separate records (``"FILGOTINIB"`` and
+    ``"FILGOTINIB MALEATE"``), double-counting the same INN. Pharma salt forms
+    are universally formatted as ``"<INN> <counter-ion>"``, so a multi-token
+    name whose first token matches a shorter single-token record's full name
+    is virtually always the same molecule.
+
+    Merges the longer (salt) record into the shorter (parent) record, unioning
+    sources and preserving the strongest approved/phase signal. No hardcoded
+    salt vocabulary — the decision is based purely on structural name prefix.
+    """
+    if len(drugs) < 2:
+        return drugs
+
+    by_name: dict[str, DrugInteraction] = {d.drug_name.lower(): d for d in drugs}
+
+    # A record is a salt form of a "parent" when its first whitespace token
+    # exactly matches a single-token record's full name. Restricting the parent
+    # to single-token names avoids false positives on distinct multi-word drugs.
+    merged_into: dict[str, str] = {}
+    for name_l in list(by_name.keys()):
+        tokens = name_l.split()
+        if len(tokens) < 2:
+            continue
+        parent_key = tokens[0]
+        if parent_key in by_name and parent_key != name_l:
+            merged_into[name_l] = parent_key
+
+    if not merged_into:
+        return drugs
+
+    for salt_key, parent_key in merged_into.items():
+        salt = by_name[salt_key]
+        parent = by_name[parent_key]
+        by_name[parent_key] = DrugInteraction(
+            drug_name=parent.drug_name,
+            interaction_type=parent.interaction_type or salt.interaction_type,
+            phase=max(parent.phase or 0, salt.phase or 0) or None,
+            approved=parent.approved or salt.approved,
+            sources=sorted(set(parent.sources) | set(salt.sources)),
+        )
+
+    return [by_name[d.drug_name.lower()] for d in drugs if d.drug_name.lower() not in merged_into]

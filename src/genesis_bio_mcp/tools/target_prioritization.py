@@ -17,6 +17,7 @@ from genesis_bio_mcp.models import (
     ProteinInfo,
     ProteinInteractome,
     ProteinStructure,
+    ScoreBreakdown,
     TargetDiseaseAssociation,
     TargetPrioritizationReport,
 )
@@ -160,7 +161,7 @@ async def prioritize_target(
     _check("pubchem", compounds, co_err)
     _check("chembl", chembl_compounds, chembl_err)
 
-    priority_score = _compute_score(
+    priority_score, score_breakdown = _compute_score(
         disease_assoc,
         cancer_dep,
         gwas_ev,
@@ -255,6 +256,7 @@ async def prioritize_target(
         chembl_compounds=chembl_compounds,
         priority_score=round(priority_score, 2),
         priority_tier=priority_tier,
+        score_breakdown=score_breakdown,
         evidence_summary=evidence_summary,
         data_gaps=data_gaps,
         errors=errors,
@@ -335,8 +337,16 @@ def _compute_score(
     protein: ProteinInfo | None,
     chembl_compounds: ChEMBLCompounds | None = None,
     indication: str = "",
-) -> float:
-    score = 0.0
+) -> tuple[float, ScoreBreakdown]:
+    """Compute the priority score and the per-axis breakdown that produced it.
+
+    Returns ``(total, breakdown)`` where ``total`` is the 0–10 capped score and
+    ``breakdown`` exposes each of the six axes' contributions. Callers show the
+    breakdown to make rankings auditable — otherwise a user can't tell why a
+    target with the highest Open Targets score can rank below peers that win
+    on DepMap, GWAS, drug, and chemical-matter axes.
+    """
+    breakdown = ScoreBreakdown()
 
     # Open Targets association (max 3.0; floor raised for clinically validated targets)
     # When known_drug_score > 0.9 AND both genetic_association and somatic_mutation
@@ -355,7 +365,7 @@ def _compute_score(
             and disease_assoc.somatic_mutation_score is None
         ):
             ot_contrib = max(ot_contrib, OT_CLINICALLY_VALIDATED_FLOOR)
-        score += ot_contrib
+        breakdown.ot = ot_contrib
 
     # DepMap cancer dependency (max 2.0)
     # Apply 0.7x confidence discount when using OT somatic mutation proxy instead of real CRISPR data.
@@ -370,48 +380,50 @@ def _compute_score(
             for lin in (cancer_dep.top_dependent_lineages or [])
         )
         lineage_factor = LINEAGE_MATCH_FACTOR if lineage_match else 1.0
-        dep_contribution = min(
+        breakdown.depmap = min(
             cancer_dep.fraction_dependent_lines * 2.0 * confidence * lineage_factor, 2.0
         )
-        score += dep_contribution
     elif cancer_dep and cancer_dep.pan_essential:
         # Pan-essential genes have narrow therapeutic windows — cap contribution
-        score += 0.5
+        breakdown.depmap = 0.5
 
     # GWAS evidence (max 2.0)
     # Cap at 3: ≥3 replicated trait hits = full credit. Keeps score stable whether
     # the fetch returned 3 or 30 hits — pagination differences don't affect scoring.
     if gwas_ev:
-        score += min(gwas_ev.total_associations, 3) / 3 * 2.0
+        breakdown.gwas = min(gwas_ev.total_associations, 3) / 3 * 2.0
 
     # Clinical / known-drug evidence (max 1.5)
     # Distinguishes targets with approved drugs from literature-only at the same OT overall_score
     if disease_assoc and disease_assoc.known_drug_score:
-        score += disease_assoc.known_drug_score * 1.5
+        breakdown.known_drug = disease_assoc.known_drug_score * 1.5
 
     # Chemical matter (max 1.5)
     # ChEMBL potency-based scoring takes precedence over PubChem count-based scoring
     if chembl_compounds and chembl_compounds.best_pchembl is not None:
         bp = chembl_compounds.best_pchembl
         if bp >= 9:
-            score += 1.5  # IC50 ≤ 1 nM — clinical-grade potency
+            breakdown.chem_matter = 1.5  # IC50 ≤ 1 nM — clinical-grade potency
         elif bp >= 7:
-            score += 1.0  # IC50 ≤ 100 nM — lead quality
+            breakdown.chem_matter = 1.0  # IC50 ≤ 100 nM — lead quality
         elif bp >= 5:
-            score += 0.5  # IC50 ≤ 10 µM — hit quality
+            breakdown.chem_matter = 0.5  # IC50 ≤ 10 µM — hit quality
         else:
-            score += 0.25  # active but weak
+            breakdown.chem_matter = 0.25  # active but weak
     elif compounds and compounds.total_active_compounds >= PUBCHEM_MIN_COMPOUNDS:
-        score += min(compounds.total_active_compounds, 100) / 100 * 1.5
+        breakdown.chem_matter = min(compounds.total_active_compounds, 100) / 100 * 1.5
     # PubChem count < PUBCHEM_MIN_COMPOUNDS with no ChEMBL potency data → no usable chemical matter
 
     # Protein quality (max 1.5)
     if protein:
+        pi_score = 0.0
         if protein.reviewed:
-            score += 0.5
-        score += min(len(protein.known_variants), 2) / 2 * 1.0
+            pi_score += 0.5
+        pi_score += min(len(protein.known_variants), 2) / 2 * 1.0
+        breakdown.protein = pi_score
 
-    return min(score, 10.0)
+    total = min(breakdown.total, 10.0)
+    return total, breakdown
 
 
 def _tier(score: float) -> str:

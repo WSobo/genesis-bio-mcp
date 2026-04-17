@@ -142,10 +142,17 @@ def filter_by_trait(
     match_strings: set[str] = {trait_norm}
 
     # EFO terms when available — covers ontology-resolved labels and synonyms.
+    # The related_uris set (descendants + direct ancestors, populated by
+    # EFOResolver._expand_hierarchy) is the key lever for catching studies
+    # tagged with sibling/parent EFO terms: a user query "polycythemia vera"
+    # resolves to EFO_0004254, whose related_uris include "myeloproliferative
+    # neoplasm" (parent), so JAK2 studies tagged with MPN match via structural
+    # identity rather than free-text substring.
     if efo_terms:
         for t in efo_terms:
             if t.uri:
                 efo_uris.add(t.uri)
+            efo_uris.update(t.related_uris)
             match_strings.add(_normalize(t.label))
             match_strings.update(_normalize(s) for s in t.synonyms)
 

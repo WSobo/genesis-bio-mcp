@@ -1369,6 +1369,7 @@ async def compare_targets(params: CompareTargetsInput) -> str:
                 else None,
                 data_gaps=report.data_gaps,
                 evidence_summary=report.evidence_summary,
+                score_breakdown=report.score_breakdown,
             )
         )
 

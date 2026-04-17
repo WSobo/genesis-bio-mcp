@@ -15,6 +15,7 @@ is wasteful). Session cache avoids repeated OLS calls within one MCP session.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -29,6 +30,12 @@ from genesis_bio_mcp.config.settings import settings
 logger = logging.getLogger(__name__)
 
 _OLS_URL = "https://www.ebi.ac.uk/ols4/api/search"
+# Hierarchy expansion bounds. Descendants are large-ish (disease subtype clades) but
+# capped to avoid pathological ontology nodes. Ancestors are capped tightly so that
+# "polycythemia vera" doesn't expand all the way up to "disease" and catch every
+# disease-tagged study.
+_MAX_DESCENDANTS = 500
+_MAX_ANCESTORS = 10
 # Default cache path read from settings at class definition time so it can be
 # used as the default argument to EFOResolver.__init__ below.
 _EFO_CACHE_PATH: Path = settings.efo_cache_path
@@ -43,6 +50,13 @@ class EFOTerm:
     uri: str  # "http://www.ebi.ac.uk/efo/EFO_0001073"
     label: str  # "obesity"
     synonyms: list[str] = field(default_factory=list)
+    # Hierarchy-expanded URIs: descendants (more specific subtypes) + direct ancestors
+    # (one level broader). Populated by EFOResolver.resolve() via OLS4 structural
+    # filters. Feeds the URI-set match in filter_by_trait so queries like
+    # "polycythemia vera" catch JAK2 studies tagged "myeloproliferative neoplasm"
+    # (direct parent) and queries like "myeloproliferative disorder" catch studies
+    # tagged with specific subtypes.
+    related_uris: list[str] = field(default_factory=list)
 
 
 def _load_efo_cache(cache_path: Path) -> dict[str, dict]:
@@ -92,7 +106,14 @@ class EFOResolver:
         self._disk_cache: dict[str, dict] = _load_efo_cache(cache_path) if cache_path else {}
 
     async def resolve(self, trait: str) -> list[EFOTerm]:
-        """Return up to 5 best-matching EFO terms for the trait query."""
+        """Return up to 5 best-matching EFO terms for the trait query.
+
+        Each returned term is hierarchy-expanded: its ``related_uris`` contains
+        URIs of descendants (for broader queries like "myeloproliferative") and
+        direct ancestors (for specific queries like "polycythemia vera"), so
+        ontology-backed URI matching catches siblings/parents/children of the
+        literal query term.
+        """
         key = _normalize(trait)
 
         # 1. Session cache
@@ -109,8 +130,10 @@ class EFOResolver:
             except Exception:
                 pass
 
-        # 3. OLS4 API
+        # 3. OLS4 API — fetch matching terms, then expand each term's hierarchy
         terms = await self._fetch_from_ols(trait, key)
+        if terms:
+            await self._expand_hierarchy(terms)
         self._session_cache[key] = terms
         self._write_disk_cache(key, terms)
         return terms
@@ -142,11 +165,66 @@ class EFOResolver:
             logger.warning("OLS4 lookup failed for '%s': %s", trait, repr(exc))
             return []
 
+    async def _expand_hierarchy(self, terms: list[EFOTerm]) -> None:
+        """Populate ``related_uris`` on each term with descendants + direct ancestors.
+
+        Uses OLS4 search with ``allChildrenOf`` / ``ancestorsOf`` filters to fetch
+        structural neighbors of each term. Runs all fetches concurrently. Any
+        failure silently leaves ``related_uris`` empty — callers already handle
+        sparse ontology matches via the synonym fallback in filter_by_trait.
+        """
+        # Fan out one (desc, anc) fetch pair per term; gather all results in parallel
+        coros = []
+        for t in terms:
+            coros.append(self._fetch_related(t.uri, "allChildrenOf", _MAX_DESCENDANTS))
+            coros.append(self._fetch_related(t.uri, "ancestorsOf", _MAX_ANCESTORS))
+        results = await asyncio.gather(*coros)
+
+        # Stitch results back onto their owning terms (descendants, ancestors per term)
+        for i, t in enumerate(terms):
+            desc = results[2 * i]
+            anc = results[2 * i + 1]
+            merged = set(desc) | set(anc)
+            merged.discard(t.uri)
+            t.related_uris = sorted(merged)
+
+    async def _fetch_related(self, iri: str, filter_param: str, rows: int) -> list[str]:
+        """OLS4 search restricted by ``filter_param`` (``allChildrenOf``/``ancestorsOf``)."""
+        try:
+            resp = await self._client.get(
+                _OLS_URL,
+                params={
+                    "q": "*",
+                    filter_param: iri,
+                    "ontology": "efo",
+                    "type": "class",
+                    "rows": rows,
+                    "fieldList": "iri",
+                },
+                timeout=8.0,
+            )
+            resp.raise_for_status()
+            docs = resp.json().get("response", {}).get("docs", [])
+            return [d.get("iri", "") for d in docs if d.get("iri")]
+        except Exception as exc:
+            logger.warning(
+                "OLS4 hierarchy lookup failed (%s for %s): %s", filter_param, iri, repr(exc)
+            )
+            return []
+
     def _write_disk_cache(self, key: str, terms: list[EFOTerm]) -> None:
         if not self._cache_path:
             return
         self._disk_cache[key] = {
-            "terms": [{"uri": t.uri, "label": t.label, "synonyms": t.synonyms} for t in terms],
+            "terms": [
+                {
+                    "uri": t.uri,
+                    "label": t.label,
+                    "synonyms": t.synonyms,
+                    "related_uris": t.related_uris,
+                }
+                for t in terms
+            ],
             "fetched_at": time.time(),
         }
         try:

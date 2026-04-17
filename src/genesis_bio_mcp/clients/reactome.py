@@ -286,19 +286,24 @@ class ReactomeClient:
 def _parse_pathways(pathways_data: list[dict]) -> list[Pathway]:
     """Parse raw Reactome pathway dicts into Pathway models.
 
-    Deduplicates by Reactome stable ID. The analysis API can return the same
-    stId twice (e.g. with slightly different gene_count from different resource
-    subsets); the upstream sortBy=ENTITIES_PVALUE puts the strongest hit first,
-    so keeping the first occurrence preserves the most informative row.
+    Two-pass dedup:
+    1. By Reactome stable ID — the analysis API can return the same stId twice
+       across different resource subsets.
+    2. By display_name (case-insensitive) — Reactome sometimes returns a parent
+       and a child pathway with identical human-readable names but different
+       stable IDs. Keeps the row with the smallest p_value.
+
+    Upstream sortBy=ENTITIES_PVALUE puts the strongest hit first, so keeping
+    the first occurrence in the stId pass preserves the most informative row.
     """
-    seen: set[str] = set()
-    pathways: list[Pathway] = []
+    seen_ids: set[str] = set()
+    parsed: list[Pathway] = []
     for p in pathways_data:
         reactome_id = p.get("stId", "")
-        if reactome_id and reactome_id in seen:
+        if reactome_id and reactome_id in seen_ids:
             continue
         if reactome_id:
-            seen.add(reactome_id)
+            seen_ids.add(reactome_id)
 
         p_value = p.get("entities", {}).get("pValue")
         gene_count = p.get("entities", {}).get("total")
@@ -310,7 +315,7 @@ def _parse_pathways(pathways_data: list[dict]) -> list[Pathway]:
         except (ValueError, TypeError):
             p_float = None
 
-        pathways.append(
+        parsed.append(
             Pathway(
                 reactome_id=reactome_id,
                 display_name=name,
@@ -320,7 +325,28 @@ def _parse_pathways(pathways_data: list[dict]) -> list[Pathway]:
             )
         )
 
-    return pathways
+    # Name-based dedup: collapse parent/child pathways that share a display name,
+    # keeping the row with the smallest p-value.
+    by_name: dict[str, Pathway] = {}
+    ordering: list[str] = []
+    for p in parsed:
+        key = p.display_name.strip().lower()
+        if not key:
+            sentinel = f"__anon_{len(ordering)}__"
+            by_name[sentinel] = p
+            ordering.append(sentinel)
+            continue
+        existing = by_name.get(key)
+        if existing is None:
+            by_name[key] = p
+            ordering.append(key)
+            continue
+        ep = existing.p_value if existing.p_value is not None else float("inf")
+        np_ = p.p_value if p.p_value is not None else float("inf")
+        if np_ < ep:
+            by_name[key] = p
+
+    return [by_name[k] for k in ordering]
 
 
 def _infer_category(pathway_name: str) -> str | None:

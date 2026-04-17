@@ -15,6 +15,7 @@ import asyncio
 import csv
 import io
 import logging
+import math
 import time
 
 import httpx
@@ -85,7 +86,9 @@ def _parse_resolution(val: str) -> float | None:
 def _parse_float(val: str) -> float | None:
     try:
         f = float(val)
-        return f if f != 0 else None
+        # Reject zero, negative, and non-finite — SAbDab encodes missing affinity
+        # variously (empty string, "None", "NA", literal "0"). Treat all as None.
+        return f if f > 0 and math.isfinite(f) else None
     except (ValueError, TypeError):
         return None
 

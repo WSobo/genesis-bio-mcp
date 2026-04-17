@@ -789,7 +789,10 @@ class Compounds(BaseModel):
             for c in potent[:8]:
                 mw = f"{c.molecular_weight:.1f}" if c.molecular_weight else "—"
                 val = f"{c.activity_value:.1f}" if c.activity_value else "—"
-                atype = c.activity_type or "—"
+                # activity_type ("IC50", "EC50"...) is the richer label but absent
+                # on some PubChem concise-endpoint rows. Fall back to the outcome
+                # ("Active"), which the client always populates for kept rows.
+                atype = c.activity_type or c.activity_outcome or "—"
                 lines.append(f"| {c.name[:35]} | {mw} | {atype} | {val} | {c.cid} |")
         elif self.compounds:
             lines += ["", "| Compound | Formula | CID |", "|---|---|---|"]
@@ -1231,13 +1234,48 @@ class PathwayContext(BaseModel):
                 p_str = f"{p.p_value:.2e}" if p.p_value is not None else "—"
                 genes = str(p.gene_count) if p.gene_count is not None else "—"
                 cat = p.category or "—"
-                lines.append(f"| {p.display_name[:50]} | {cat} | {genes} | {p_str} |")
+                # Append the stable ID so any residual same-name pathways
+                # (e.g. parent/child with the same display_name that survives
+                # dedup) are at least visually distinguishable.
+                name_cell = p.display_name[:50]
+                if p.reactome_id:
+                    name_cell = f"{name_cell} [{p.reactome_id}]"
+                lines.append(f"| {name_cell} | {cat} | {genes} | {p_str} |")
         return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
 # Target prioritization report
 # ---------------------------------------------------------------------------
+
+
+class ScoreBreakdown(BaseModel):
+    """Per-axis contributions that sum to the priority score.
+
+    Surfaces the six weighted axes of ``_compute_score`` so the reader can audit
+    *why* a target ranks where it does — especially in compare_targets, where the
+    aggregate score alone doesn't explain why a target with the highest OT score
+    can still rank below peers that win on DepMap/GWAS/drug/chem axes.
+    """
+
+    ot: float = Field(default=0.0, description="Open Targets association contribution (max 3.0)")
+    depmap: float = Field(default=0.0, description="Cancer dependency contribution (max 2.0)")
+    gwas: float = Field(default=0.0, description="GWAS evidence contribution (max 2.0)")
+    known_drug: float = Field(default=0.0, description="Known-drug evidence contribution (max 1.5)")
+    chem_matter: float = Field(default=0.0, description="Chemical matter contribution (max 1.5)")
+    protein: float = Field(default=0.0, description="Protein annotation contribution (max 1.5)")
+
+    @property
+    def total(self) -> float:
+        """Pre-cap sum of the six axes. Caller applies the 10.0 ceiling."""
+        return self.ot + self.depmap + self.gwas + self.known_drug + self.chem_matter + self.protein
+
+    def to_compact(self) -> str:
+        """Single-line breakdown, e.g. ``OT 2.3 · Dep 1.2 · GWAS 0.0 · Drug 1.1 · Chem 1.5 · Prot 0.6``."""
+        return (
+            f"OT {self.ot:.1f} · Dep {self.depmap:.1f} · GWAS {self.gwas:.1f} · "
+            f"Drug {self.known_drug:.1f} · Chem {self.chem_matter:.1f} · Prot {self.protein:.1f}"
+        )
 
 
 class TargetPrioritizationReport(BaseModel):
@@ -1263,6 +1301,10 @@ class TargetPrioritizationReport(BaseModel):
         description="Composite evidence score 0–10 computed from weighted database evidence",
     )
     priority_tier: str = Field(description="'High' (>7) | 'Medium' (4–7) | 'Low' (<4)")
+    score_breakdown: ScoreBreakdown | None = Field(
+        default=None,
+        description="Per-axis contributions that sum to priority_score (before 10.0 cap)",
+    )
     evidence_summary: str = Field(
         description="1–3 sentence plain-language summary of key evidence for this target"
     )
@@ -1490,6 +1532,10 @@ class TargetComparisonRow(BaseModel):
     gwas_count: int | None = None
     data_gaps: list[str] = Field(default_factory=list)
     evidence_summary: str = ""
+    score_breakdown: ScoreBreakdown | None = Field(
+        default=None,
+        description="Per-axis contributions so the reader can audit why a rank is what it is",
+    )
 
 
 class ComparisonReport(BaseModel):
@@ -1523,6 +1569,17 @@ class ComparisonReport(BaseModel):
             "",
             "_* DepMap % estimated from Open Targets somatic mutation data (no direct CRISPR data)_",
         ]
+
+        # Per-row score breakdown makes the ranking auditable. Without this,
+        # cases where the target with the highest OT score ranks below peers
+        # that win on DepMap/GWAS/drug/chem look arbitrary.
+        if any(r.score_breakdown is not None for r in ranked):
+            lines += ["", "## Score Breakdown (contribution per axis)"]
+            lines += ["| Gene | Breakdown |", "|---|---|"]
+            for row in ranked:
+                if row.score_breakdown is not None:
+                    lines.append(f"| **{row.gene_symbol}** | {row.score_breakdown.to_compact()} |")
+
         lines += ["", "## Evidence Summaries"]
         for row in ranked:
             lines += [f"### {row.gene_symbol}", row.evidence_summary, ""]
@@ -1942,7 +1999,10 @@ class AntibodyStructures(BaseModel):
             insights.append(
                 f"{self.nanobody_count} VHH nanobod{'ies' if self.nanobody_count > 1 else 'y'} available"
             )
-        affinities = [s.affinity_nM for s in self.structures if s.affinity_nM is not None]
+        # Filter to strictly positive values — a 0.0 leaking through pydantic coercion
+        # or from a literal "0" string in the upstream TSV would otherwise show up as
+        # "Best measured affinity: 0.0 nM", which is nonsense (0 means "not measured").
+        affinities = [s.affinity_nM for s in self.structures if s.affinity_nM and s.affinity_nM > 0]
         if affinities:
             best_aff = min(affinities)
             insights.append(f"Best measured affinity: {best_aff:.1f} nM")
