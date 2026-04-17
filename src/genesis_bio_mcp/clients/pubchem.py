@@ -1,13 +1,23 @@
-"""PubChem REST + NCBI E-utils client for compound bioactivity data.
+"""PubChem PUG REST client for compound bioactivity data.
 
-PubChem's concisebioactivities endpoint is invalid for gene/assay targets,
-and most BRAF assays (1456 AIDs) use continuous binding formats with no
-formal Active/Inactive designation. This client uses:
+The naive `assay/aid/{aid}/cids/JSON?cids_type=active` endpoint returns 0
+CIDs for most BRAF/EGFR/kinase assays because PubChem only flags rows as
+"Active" via the per-row Activity Outcome column inside an assay's
+*concise* table — the bulk `cids_type=active` index is sparse.
 
-  1. NCBI E-utils esearch to find assays with IC50 data and Active outcomes
-     against the gene target (via PubChem BioAssay text search).
-  2. PubChem PUG REST to get active CIDs for those assays.
-  3. PubChem PUG REST to retrieve compound properties.
+This client therefore:
+
+  1. Resolves the gene symbol to an NCBI GeneID via PubChem's gene domain
+     (used to filter panel-assay rows down to the requested target).
+  2. Fetches AIDs targeting the gene via
+     `assay/target/genesymbol/{symbol}/aids/JSON`.
+  3. For each AID, GETs `assay/aid/{aid}/concise/JSON` and parses rows
+     where Target GeneID matches and Activity Outcome == "Active".
+  4. Dedups by CID, keeps the most potent value, and enriches the top
+     results with formula/MW/name via the compound property endpoint.
+
+Activity values in the concise table are reported in µM; we convert to nM
+for the model so units match ChEMBL.
 """
 
 from __future__ import annotations
@@ -26,10 +36,23 @@ logger = logging.getLogger(__name__)
 
 _PUG_BASE = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
 _ESEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
-_EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 _NCBI_EMAIL = os.environ.get("NCBI_EMAIL", "genesis-bio-mcp@example.com")
 
 _SEMAPHORE = asyncio.Semaphore(settings.pubchem_semaphore_limit)
+
+# Concise tables can be ~1 MB each; cap the per-query AID fan-out so
+# total payload stays bounded. 10 AIDs against a heavily-drugged gene
+# already yields hundreds of unique CIDs after target-row filtering.
+_MAX_AIDS_TO_PROBE = 10
+
+# Number of compounds to enrich with formula/MW/IUPAC name. The full
+# active set is reported in `total_active_compounds`; only this many are
+# materialised in `compounds`.
+_MAX_COMPOUNDS_TO_ENRICH = 20
+
+# Human taxonomy ID — PubChem's gene endpoint can return orthologs across
+# species; we filter to human to align with the rest of the project.
+_HUMAN_TAXONOMY_ID = 9606
 
 
 def _is_rate_limited(exc: Exception) -> bool:
@@ -46,66 +69,114 @@ class PubChemClient:
         """Return active small molecules with bioactivity against a gene target."""
         symbol = gene_symbol.strip().upper()
 
-        # Strategy 1 (primary): PUG REST structured assay→gene-symbol lookup.
-        # Returns the full set of AIDs targeting the gene without depending on
-        # free-text Entrez metadata. For BRAF this yields 1300+ assays where
-        # the Entrez query (which requires literal "active"/"IC50" terms in
-        # assay metadata) returned only 0–1 hits.
-        aids = await self._get_aids_by_gene_symbol(symbol)
+        gene_id, aids = await asyncio.gather(
+            self._resolve_gene_id(symbol),
+            self._get_aids_by_gene_symbol(symbol),
+        )
 
-        # Strategy 2 (fallback): NCBI Entrez if PUG REST is unavailable.
+        # Fallback to Entrez assay text search if PUG REST returned no AIDs.
         if not aids:
             aids = await self._search_assays_entrez(symbol)
-
         if not aids:
             logger.info("PubChem: no assays found for gene '%s'", symbol)
             return None
+        if gene_id is None:
+            logger.info(
+                "PubChem: could not resolve GeneID for '%s' — skipping target filter", symbol
+            )
 
-        # Collect active CIDs across assays. 30 is a balance between coverage
-        # and per-assay HTTP cost; the 100-compound early-exit usually fires
-        # well before this cap on heavily-drugged targets like BRAF.
+        # Fetch concise tables for the top AIDs concurrently. _get's
+        # semaphore enforces the project-wide PubChem rate limit.
+        top_aids = aids[:_MAX_AIDS_TO_PROBE]
+        results = await asyncio.gather(
+            *[self._extract_active_from_concise(aid, gene_id) for aid in top_aids],
+            return_exceptions=True,
+        )
         all_compounds: list[CompoundActivity] = []
-        for aid in aids[:30]:
-            compounds = await self._get_active_cids(aid, symbol)
-            all_compounds.extend(compounds)
-            if len(all_compounds) >= 100:
-                break
-
-        if not all_compounds:
-            # Strategy 3: Try fetching compounds that mention the gene via PubChem compound search
-            all_compounds = await self._search_compounds_by_name(symbol)
+        for r in results:
+            if isinstance(r, list):
+                all_compounds.extend(r)
 
         if not all_compounds:
             return None
 
-        # Deduplicate by CID, keep most potent (lowest IC50)
+        # Dedup by CID, keep the most potent measurement (lowest IC50 in nM).
         by_cid: dict[int, CompoundActivity] = {}
         for c in all_compounds:
-            if c.cid not in by_cid:
+            existing = by_cid.get(c.cid)
+            if existing is None:
                 by_cid[c.cid] = c
-            else:
-                existing = by_cid[c.cid]
-                if c.activity_value is not None and (
-                    existing.activity_value is None or c.activity_value < existing.activity_value
-                ):
-                    by_cid[c.cid] = c
+                continue
+            if c.activity_value is not None and (
+                existing.activity_value is None or c.activity_value < existing.activity_value
+            ):
+                by_cid[c.cid] = c
 
-        active = [c for c in by_cid.values() if c.activity_outcome == "Active"]
-        active.sort(
-            key=lambda c: c.activity_value if c.activity_value is not None else float("inf")
+        active = sorted(
+            by_cid.values(),
+            key=lambda c: c.activity_value if c.activity_value is not None else float("inf"),
         )
+
+        # Enrich the top compounds with formula/MW/name in a single batch call.
+        top = active[:_MAX_COMPOUNDS_TO_ENRICH]
+        props = await self._fetch_compound_properties([c.cid for c in top])
+        enriched = [
+            c.model_copy(
+                update={
+                    "name": props.get(c.cid, {}).get("name") or c.name,
+                    "molecular_formula": props.get(c.cid, {}).get("formula"),
+                    "molecular_weight": props.get(c.cid, {}).get("weight"),
+                }
+            )
+            for c in top
+        ]
 
         return Compounds(
             gene_symbol=symbol,
             total_active_compounds=len(active),
-            compounds=active[:20],
+            compounds=enriched,
         )
 
+    async def _resolve_gene_id(self, symbol: str) -> int | None:
+        """Resolve an HGNC gene symbol to a human NCBI GeneID via PubChem."""
+        url = f"{_PUG_BASE}/gene/genesymbol/{symbol}/summary/JSON"
+        try:
+            data = await self._get(url)
+        except Exception as exc:
+            logger.debug("PubChem gene resolve failed for '%s': %s", symbol, exc)
+            return None
+        if not data:
+            return None
+        summaries = data.get("GeneSummaries", {}).get("GeneSummary", [])
+        for gs in summaries:
+            if gs.get("TaxonomyID") == _HUMAN_TAXONOMY_ID:
+                try:
+                    return int(gs["GeneID"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+        # Fall back to the first entry if no explicit human match
+        if summaries:
+            try:
+                return int(summaries[0]["GeneID"])
+            except (KeyError, TypeError, ValueError):
+                return None
+        return None
+
+    async def _get_aids_by_gene_symbol(self, symbol: str) -> list[int]:
+        """Get all PubChem assay IDs targeting a gene symbol."""
+        url = f"{_PUG_BASE}/assay/target/genesymbol/{symbol}/aids/JSON"
+        try:
+            data = await self._get(url)
+            if data is None:
+                return []
+            return data.get("IdentifierList", {}).get("AID", [])
+        except Exception as exc:
+            logger.debug("PubChem AID lookup failed for '%s': %s", symbol, exc)
+            return []
+
     async def _search_assays_entrez(self, symbol: str) -> list[int]:
-        """Use NCBI Entrez to find BioAssay IDs with active compounds against this gene."""
-        term = (
-            f'("{symbol}"[Gene Symbol]) AND "active"[Activity Outcome] AND "IC50"[Measurement Type]'
-        )
+        """Fallback: NCBI Entrez assay search when PUG REST returns nothing."""
+        term = f'("{symbol}"[Gene Symbol]) AND "active"[Activity Outcome]'
         params = {
             "db": "pcassay",
             "term": term,
@@ -114,7 +185,6 @@ class PubChemClient:
             "email": _NCBI_EMAIL,
         }
         try:
-            # Route through _get() to get retry-on-503 behaviour
             data = await self._get(_ESEARCH_URL, params=params)
             if data is None:
                 return []
@@ -124,81 +194,114 @@ class PubChemClient:
             logger.debug("Entrez BioAssay search failed for '%s': %s", symbol, exc)
             return []
 
-    async def _get_aids_by_gene_symbol(self, symbol: str) -> list[int]:
-        """Get assay IDs for a gene symbol from PubChem PUG."""
-        url = f"{_PUG_BASE}/assay/target/genesymbol/{symbol}/aids/JSON"
-        try:
-            data = await self._get(url)
-            if data is None:
-                return []
-            # 50 is a safety cap; the per-assay loop in get_compounds further
-            # restricts to 30 and exits early at 100 compounds collected.
-            return data.get("IdentifierList", {}).get("AID", [])[:50]
-        except Exception as exc:
-            logger.debug("PubChem AID lookup failed for '%s': %s", symbol, exc)
-            return []
-
-    async def _get_active_cids(self, aid: int, gene_symbol: str) -> list[CompoundActivity]:
-        """Get active CIDs for an assay and fetch their properties."""
-        url = f"{_PUG_BASE}/assay/aid/{aid}/cids/JSON?cids_type=active"
-        try:
-            data = await self._get(url)
-            if data is None:
-                return []
-            cids = data.get("IdentifierList", {}).get("CID", [])
-            if not cids:
-                return []
-            return await self._fetch_compound_properties(cids[:20], aid, gene_symbol)
-        except Exception as exc:
-            logger.debug("PubChem active CIDs failed for AID %d: %s", aid, exc)
-            return []
-
-    async def _fetch_compound_properties(
-        self, cids: list[int], aid: int, gene_symbol: str
+    async def _extract_active_from_concise(
+        self, aid: int, gene_id: int | None
     ) -> list[CompoundActivity]:
-        if not cids:
-            return []
-        cid_str = ",".join(str(c) for c in cids)
-        url = f"{_PUG_BASE}/compound/cid/{cid_str}/property/MolecularFormula,MolecularWeight,IUPACName/JSON"
+        """Parse an AID's concise bioactivity table; return Active rows for the gene.
+
+        When *gene_id* is None (gene resolution failed), all Active rows are
+        returned regardless of target — the caller already restricted the AID
+        list by gene symbol so the cross-target leakage is bounded.
+        """
+        url = f"{_PUG_BASE}/assay/aid/{aid}/concise/JSON"
         try:
             data = await self._get(url)
-            if data is None:
-                return []
-            props = data.get("PropertyTable", {}).get("Properties", [])
-            return [
+        except Exception as exc:
+            logger.debug("PubChem concise fetch failed for AID %d: %s", aid, exc)
+            return []
+        if not data:
+            return []
+
+        table = data.get("Table", {})
+        cols: list[str] = table.get("Columns", {}).get("Column", [])
+        rows: list[dict] = table.get("Row", [])
+        if not cols or not rows:
+            return []
+
+        try:
+            cid_idx = cols.index("CID")
+            outcome_idx = cols.index("Activity Outcome")
+            value_idx = cols.index("Activity Value [uM]")
+            gene_idx = cols.index("Target GeneID") if "Target GeneID" in cols else None
+            name_idx = cols.index("Activity Name") if "Activity Name" in cols else None
+        except ValueError:
+            return []
+
+        gene_id_str = str(gene_id) if gene_id is not None else None
+        out: list[CompoundActivity] = []
+        for row in rows:
+            cells = row.get("Cell", [])
+            if len(cells) <= max(cid_idx, outcome_idx, value_idx):
+                continue
+            if cells[outcome_idx] != "Active":
+                continue
+            if gene_idx is not None and gene_id_str is not None:
+                if cells[gene_idx] != gene_id_str:
+                    continue
+            cid_raw = cells[cid_idx]
+            if not cid_raw:
+                continue
+            try:
+                cid = int(cid_raw)
+            except (TypeError, ValueError):
+                continue
+            value_um = (cells[value_idx] or "").strip()
+            try:
+                value_nm = float(value_um) * 1000.0 if value_um else None
+            except ValueError:
+                value_nm = None
+            activity_type: str | None = None
+            if name_idx is not None and name_idx < len(cells):
+                activity_type = (cells[name_idx] or "").strip() or None
+            out.append(
                 CompoundActivity(
-                    cid=p["CID"],
-                    name=p.get("IUPACName", f"CID {p['CID']}")[:80],
-                    molecular_formula=p.get("MolecularFormula"),
-                    molecular_weight=p.get("MolecularWeight"),
+                    cid=cid,
+                    name=f"CID {cid}",
                     activity_outcome="Active",
+                    activity_value=value_nm,
+                    activity_type=activity_type,
                     assay_id=aid,
                 )
-                for p in props
-                if "CID" in p
-            ]
-        except Exception as exc:
-            logger.debug("PubChem property fetch failed: %s", exc)
-            return []
+            )
+        return out
 
-    async def _search_compounds_by_name(self, symbol: str) -> list[CompoundActivity]:
-        """Fallback: search for compounds related to the gene by name in PubChem."""
-        # Look up well-known drug names via PubChem synonym search
-        search_terms = [f"{symbol} inhibitor", symbol]
-        for term in search_terms:
-            url = f"{_PUG_BASE}/compound/name/{term}/cids/JSON"
-            try:
-                data = await self._get(url)
-                if data is None:
-                    continue
-                cids = data.get("IdentifierList", {}).get("CID", [])
-                if cids:
-                    return await self._fetch_compound_properties(
-                        cids[:10], aid=0, gene_symbol=symbol
-                    )
-            except Exception:
+    async def _fetch_compound_properties(self, cids: list[int]) -> dict[int, dict]:
+        """Batch-fetch compound properties; return ``{cid: {formula, weight, name}}``."""
+        if not cids:
+            return {}
+        cid_str = ",".join(str(c) for c in cids)
+        url = (
+            f"{_PUG_BASE}/compound/cid/{cid_str}"
+            "/property/MolecularFormula,MolecularWeight,IUPACName/JSON"
+        )
+        try:
+            data = await self._get(url)
+        except Exception as exc:
+            logger.debug("PubChem property batch fetch failed: %s", exc)
+            return {}
+        if not data:
+            return {}
+        props = data.get("PropertyTable", {}).get("Properties", [])
+        out: dict[int, dict] = {}
+        for p in props:
+            if "CID" not in p:
                 continue
-        return []
+            try:
+                cid = int(p["CID"])
+            except (TypeError, ValueError):
+                continue
+            mw_raw = p.get("MolecularWeight")
+            try:
+                mw = float(mw_raw) if mw_raw is not None else None
+            except (TypeError, ValueError):
+                mw = None
+            name = p.get("IUPACName")
+            out[cid] = {
+                "formula": p.get("MolecularFormula"),
+                "weight": mw,
+                "name": (name[:80] if isinstance(name, str) else None),
+            }
+        return out
 
     @retry(
         retry=retry_if_exception(_is_rate_limited),

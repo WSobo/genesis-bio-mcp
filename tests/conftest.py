@@ -251,6 +251,113 @@ MOCK_PUBCHEM_ACTIVE_CIDS = {"IdentifierList": {"CID": [44462760, 11338033]}}
 # PUG REST primary path: assay/target/genesymbol/{symbol}/aids/JSON
 MOCK_PUBCHEM_GENESYMBOL_AIDS = {"IdentifierList": {"AID": [1259398, 686978]}}
 
+# gene/genesymbol/{symbol}/summary/JSON — used to resolve target GeneID
+MOCK_PUBCHEM_GENE_SUMMARY_BRAF = {
+    "GeneSummaries": {
+        "GeneSummary": [
+            {
+                "GeneID": 673,
+                "Symbol": "BRAF",
+                "TaxonomyID": 9606,
+                "Name": "B-Raf proto-oncogene, serine/threonine kinase",
+            }
+        ]
+    }
+}
+
+# assay/aid/{aid}/concise/JSON — bioactivity table per assay. Includes rows
+# targeting BRAF (GeneID 673), Active and Inactive outcomes, and rows
+# targeting other kinases (panel-assay scenario).
+MOCK_PUBCHEM_CONCISE_BRAF = {
+    "Table": {
+        "Columns": {
+            "Column": [
+                "AID",
+                "SID",
+                "CID",
+                "Activity Outcome",
+                "Target Accession",
+                "Target GeneID",
+                "Activity Value [uM]",
+                "Activity Name",
+                "Assay Name",
+                "Assay Type",
+                "PubMed ID",
+                "RNAi",
+            ]
+        },
+        "Row": [
+            # Active rows targeting BRAF (673)
+            {
+                "Cell": [
+                    "1259398",
+                    "100001",
+                    "44462760",
+                    "Active",
+                    "NP_004324",
+                    "673",
+                    "0.031",
+                    "IC50",
+                    "BRAF panel",
+                    "Other",
+                    "",
+                    "",
+                ]
+            },
+            {
+                "Cell": [
+                    "1259398",
+                    "100002",
+                    "11338033",
+                    "Active",
+                    "NP_004324",
+                    "673",
+                    "0.006",
+                    "IC50",
+                    "BRAF panel",
+                    "Other",
+                    "",
+                    "",
+                ]
+            },
+            # Active row targeting a different gene — must be filtered out
+            {
+                "Cell": [
+                    "1259398",
+                    "100003",
+                    "999",
+                    "Active",
+                    "NP_001",
+                    "4916",  # NTRK3, not BRAF
+                    "0.5",
+                    "IC50",
+                    "BRAF panel",
+                    "Other",
+                    "",
+                    "",
+                ]
+            },
+            # Inactive row targeting BRAF — must be filtered out
+            {
+                "Cell": [
+                    "1259398",
+                    "100004",
+                    "12345",
+                    "Inactive",
+                    "NP_004324",
+                    "673",
+                    "",
+                    "IC50",
+                    "BRAF panel",
+                    "Other",
+                    "",
+                    "",
+                ]
+            },
+        ],
+    }
+}
+
 MOCK_PUBCHEM_PROPERTIES = {
     "PropertyTable": {
         "Properties": [

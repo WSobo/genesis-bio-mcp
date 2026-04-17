@@ -31,7 +31,8 @@ from tests.conftest import (
     MOCK_OT_ASSOCIATION,
     MOCK_OT_DISEASE_SEARCH,
     MOCK_OT_GENE_SEARCH,
-    MOCK_PUBCHEM_ACTIVE_CIDS,
+    MOCK_PUBCHEM_CONCISE_BRAF,
+    MOCK_PUBCHEM_GENE_SUMMARY_BRAF,
     MOCK_PUBCHEM_GENESYMBOL_AIDS,
     MOCK_PUBCHEM_PROPERTIES,
     MOCK_UNIPROT_BRAF,
@@ -286,12 +287,17 @@ async def test_gwas_returns_none_when_no_hits(http_client):
 
 @respx.mock
 async def test_pubchem_returns_compounds(http_client):
-    # Primary path: PUG REST genesymbol AIDs → active CIDs → compound properties
+    """Primary path: gene→GeneID + AIDs → concise tables filtered by GeneID
+    → properties batch. The concise endpoint's per-row Activity Outcome is
+    the only reliable Active flag — the bulk cids_type=active index is sparse."""
+    respx.get(url__regex=r"gene/genesymbol/.+/summary").mock(
+        return_value=httpx.Response(200, json=MOCK_PUBCHEM_GENE_SUMMARY_BRAF)
+    )
     respx.get(url__regex=r"assay/target/genesymbol").mock(
         return_value=httpx.Response(200, json=MOCK_PUBCHEM_GENESYMBOL_AIDS)
     )
-    respx.get(url__regex=r"cids/JSON\?cids_type=active").mock(
-        return_value=httpx.Response(200, json=MOCK_PUBCHEM_ACTIVE_CIDS)
+    respx.get(url__regex=r"assay/aid/\d+/concise").mock(
+        return_value=httpx.Response(200, json=MOCK_PUBCHEM_CONCISE_BRAF)
     )
     respx.get(url__regex=r"property/MolecularFormula").mock(
         return_value=httpx.Response(200, json=MOCK_PUBCHEM_PROPERTIES)
@@ -301,21 +307,60 @@ async def test_pubchem_returns_compounds(http_client):
 
     assert result is not None
     assert result.gene_symbol == "BRAF"
-    assert result.total_active_compounds >= 1
-    active = [c for c in result.compounds if c.activity_outcome == "Active"]
-    assert len(active) >= 1
-    assert any("vemurafenib" in c.name.lower() or "dabrafenib" in c.name.lower() for c in active)
+    # Two unique CIDs target BRAF (673) and are Active across the mock concise
+    # table; the off-target row (GeneID 4916) and Inactive row are filtered.
+    assert result.total_active_compounds == 2
+    cids = {c.cid for c in result.compounds}
+    assert cids == {44462760, 11338033}
+    # Activity values converted µM → nM (0.006 µM → 6 nM, 0.031 µM → 31 nM)
+    by_cid = {c.cid: c for c in result.compounds}
+    assert by_cid[11338033].activity_value == pytest.approx(6.0)
+    assert by_cid[44462760].activity_value == pytest.approx(31.0)
+    # Sorted by potency: dabrafenib (6 nM) before vemurafenib (31 nM)
+    assert result.compounds[0].cid == 11338033
+    # Property enrichment populated names/formulae from the property batch
+    assert "dabrafenib" in by_cid[11338033].name.lower()
+    assert by_cid[11338033].molecular_formula == "C23H20F3N5O2S2"
+
+
+@respx.mock
+async def test_pubchem_filters_panel_assay_rows_by_gene_id(http_client):
+    """Concise tables from kinase panel assays include rows for many targets;
+    only rows whose Target GeneID matches the resolved GeneID may surface."""
+    respx.get(url__regex=r"gene/genesymbol/.+/summary").mock(
+        return_value=httpx.Response(200, json=MOCK_PUBCHEM_GENE_SUMMARY_BRAF)
+    )
+    respx.get(url__regex=r"assay/target/genesymbol").mock(
+        return_value=httpx.Response(200, json=MOCK_PUBCHEM_GENESYMBOL_AIDS)
+    )
+    respx.get(url__regex=r"assay/aid/\d+/concise").mock(
+        return_value=httpx.Response(200, json=MOCK_PUBCHEM_CONCISE_BRAF)
+    )
+    respx.get(url__regex=r"property/MolecularFormula").mock(
+        return_value=httpx.Response(200, json=MOCK_PUBCHEM_PROPERTIES)
+    )
+    client = PubChemClient(http_client)
+    result = await client.get_compounds("BRAF")
+
+    cids = {c.cid for c in result.compounds}
+    # CID 999 (Active, GeneID 4916=NTRK3) must not leak into BRAF results
+    assert 999 not in cids
+    # CID 12345 (Inactive against BRAF) must not appear either
+    assert 12345 not in cids
 
 
 @respx.mock
 async def test_pubchem_falls_back_to_entrez_when_pug_rest_empty(http_client):
-    """If the PUG REST genesymbol path returns no AIDs, fall back to Entrez."""
+    """If PUG REST returns no AIDs, fall back to Entrez assay search."""
+    respx.get(url__regex=r"gene/genesymbol/.+/summary").mock(
+        return_value=httpx.Response(200, json=MOCK_PUBCHEM_GENE_SUMMARY_BRAF)
+    )
     respx.get(url__regex=r"assay/target/genesymbol").mock(return_value=httpx.Response(404))
     respx.get(url__regex=r"esearch\.fcgi").mock(
         return_value=httpx.Response(200, json=MOCK_ENTREZ_AIDS)
     )
-    respx.get(url__regex=r"cids/JSON\?cids_type=active").mock(
-        return_value=httpx.Response(200, json=MOCK_PUBCHEM_ACTIVE_CIDS)
+    respx.get(url__regex=r"assay/aid/\d+/concise").mock(
+        return_value=httpx.Response(200, json=MOCK_PUBCHEM_CONCISE_BRAF)
     )
     respx.get(url__regex=r"property/MolecularFormula").mock(
         return_value=httpx.Response(200, json=MOCK_PUBCHEM_PROPERTIES)
@@ -323,12 +368,12 @@ async def test_pubchem_falls_back_to_entrez_when_pug_rest_empty(http_client):
     client = PubChemClient(http_client)
     result = await client.get_compounds("BRAF")
     assert result is not None
-    assert result.total_active_compounds >= 1
+    assert result.total_active_compounds == 2
 
 
 @respx.mock
 async def test_pubchem_retries_on_503(http_client):
-    """Verify tenacity retries on 503 from the primary PUG REST path."""
+    """Verify tenacity retries on 503 from the primary AID-list path."""
     call_count = 0
 
     def side_effect(request):
@@ -338,9 +383,12 @@ async def test_pubchem_retries_on_503(http_client):
             return httpx.Response(503)
         return httpx.Response(200, json=MOCK_PUBCHEM_GENESYMBOL_AIDS)
 
+    respx.get(url__regex=r"gene/genesymbol/.+/summary").mock(
+        return_value=httpx.Response(200, json=MOCK_PUBCHEM_GENE_SUMMARY_BRAF)
+    )
     respx.get(url__regex=r"assay/target/genesymbol").mock(side_effect=side_effect)
-    respx.get(url__regex=r"cids/JSON\?cids_type=active").mock(
-        return_value=httpx.Response(200, json=MOCK_PUBCHEM_ACTIVE_CIDS)
+    respx.get(url__regex=r"assay/aid/\d+/concise").mock(
+        return_value=httpx.Response(200, json=MOCK_PUBCHEM_CONCISE_BRAF)
     )
     respx.get(url__regex=r"property/MolecularFormula").mock(
         return_value=httpx.Response(200, json=MOCK_PUBCHEM_PROPERTIES)
@@ -354,14 +402,71 @@ async def test_pubchem_retries_on_503(http_client):
 
 @respx.mock
 async def test_pubchem_returns_none_when_no_assays(http_client):
-    # PUG REST returns 404, Entrez returns empty, name fallback returns 404
+    # Both PUG REST and Entrez return empty
+    respx.get(url__regex=r"gene/genesymbol/.+/summary").mock(return_value=httpx.Response(404))
     respx.get(url__regex=r"assay/target/genesymbol").mock(return_value=httpx.Response(404))
     respx.get(url__regex=r"esearch\.fcgi").mock(
         return_value=httpx.Response(200, json={"esearchresult": {"idlist": []}})
     )
-    respx.get(url__regex=r"compound/name").mock(return_value=httpx.Response(404))
     client = PubChemClient(http_client)
     result = await client.get_compounds("FAKEGENE")
+    assert result is None
+
+
+@respx.mock
+async def test_pubchem_returns_none_when_no_active_rows_match_gene(http_client):
+    """AIDs exist but no concise rows match the resolved GeneID — return None
+    rather than fall through to a misleading name-based fallback."""
+    respx.get(url__regex=r"gene/genesymbol/.+/summary").mock(
+        return_value=httpx.Response(200, json=MOCK_PUBCHEM_GENE_SUMMARY_BRAF)
+    )
+    respx.get(url__regex=r"assay/target/genesymbol").mock(
+        return_value=httpx.Response(200, json=MOCK_PUBCHEM_GENESYMBOL_AIDS)
+    )
+    # Concise table has no rows targeting GeneID 673
+    no_match_concise = {
+        "Table": {
+            "Columns": {
+                "Column": [
+                    "AID",
+                    "SID",
+                    "CID",
+                    "Activity Outcome",
+                    "Target Accession",
+                    "Target GeneID",
+                    "Activity Value [uM]",
+                    "Activity Name",
+                    "Assay Name",
+                    "Assay Type",
+                    "PubMed ID",
+                    "RNAi",
+                ]
+            },
+            "Row": [
+                {
+                    "Cell": [
+                        "1259398",
+                        "1",
+                        "100",
+                        "Active",
+                        "NP_001",
+                        "9999",  # not BRAF
+                        "0.1",
+                        "IC50",
+                        "x",
+                        "x",
+                        "",
+                        "",
+                    ]
+                }
+            ],
+        }
+    }
+    respx.get(url__regex=r"assay/aid/\d+/concise").mock(
+        return_value=httpx.Response(200, json=no_match_concise)
+    )
+    client = PubChemClient(http_client)
+    result = await client.get_compounds("BRAF")
     assert result is None
 
 
