@@ -814,6 +814,45 @@ async def test_reactome_returns_none_on_failure(http_client):
 
 
 @respx.mock
+async def test_reactome_dedups_pathways_by_stid(http_client):
+    """Reactome's analysis service can return the same stId twice with
+    slightly different gene_count; output must be distinct on stId."""
+    duplicate_response = {
+        "summary": {"token": "tok", "type": "OVERREPRESENTATION"},
+        "pathways": [
+            {
+                "stId": "R-HSA-5673001",
+                "name": "RAF/MAP kinase cascade",
+                "entities": {"pValue": 1.2e-15, "total": 42},
+            },
+            {
+                # Same stId, different gene_count — duplicate to be removed
+                "stId": "R-HSA-5673001",
+                "name": "RAF/MAP kinase cascade",
+                "entities": {"pValue": 1.2e-15, "total": 38},
+            },
+            {
+                "stId": "R-HSA-162582",
+                "name": "Signal Transduction",
+                "entities": {"pValue": 0.0023, "total": 512},
+            },
+        ],
+    }
+    respx.post(url__regex=r"reactome\.org/AnalysisService/identifiers").mock(
+        return_value=httpx.Response(200, json=duplicate_response)
+    )
+    client = ReactomeClient(http_client)
+    result = await client.get_pathway_context("BRAF")
+
+    assert result is not None
+    stids = [p.reactome_id for p in result.pathways]
+    assert stids.count("R-HSA-5673001") == 1
+    # First-occurrence wins: gene_count from the first row preserved
+    raf = next(p for p in result.pathways if p.reactome_id == "R-HSA-5673001")
+    assert raf.gene_count == 42
+
+
+@respx.mock
 async def test_reactome_failure_not_cached(http_client):
     """A transient network error must not poison the cache for subsequent calls."""
     route = respx.post(url__regex=r"reactome\.org/AnalysisService/identifiers")

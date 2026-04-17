@@ -284,13 +284,25 @@ class ReactomeClient:
 
 
 def _parse_pathways(pathways_data: list[dict]) -> list[Pathway]:
-    """Parse raw Reactome pathway dicts into Pathway models."""
+    """Parse raw Reactome pathway dicts into Pathway models.
+
+    Deduplicates by Reactome stable ID. The analysis API can return the same
+    stId twice (e.g. with slightly different gene_count from different resource
+    subsets); the upstream sortBy=ENTITIES_PVALUE puts the strongest hit first,
+    so keeping the first occurrence preserves the most informative row.
+    """
+    seen: set[str] = set()
     pathways: list[Pathway] = []
     for p in pathways_data:
+        reactome_id = p.get("stId", "")
+        if reactome_id and reactome_id in seen:
+            continue
+        if reactome_id:
+            seen.add(reactome_id)
+
         p_value = p.get("entities", {}).get("pValue")
         gene_count = p.get("entities", {}).get("total")
         name = p.get("name", "")
-        reactome_id = p.get("stId", "")
         category = _infer_category(name)
 
         try:
