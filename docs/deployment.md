@@ -20,6 +20,7 @@ All runtime settings use the `GENESIS_` prefix. Every variable has a sensible de
 | `GENESIS_REACTOME_SEMAPHORE_LIMIT` | `3` | Max concurrent requests to Reactome |
 | `GENESIS_CLAUDE_MODEL` | `claude-sonnet-4-6` | Claude model used by `run_biology_workflow` |
 | `NCBI_EMAIL` | `genesis-bio-mcp@example.com` | Email sent in NCBI E-utils requests (required by NCBI ToS for production) |
+| `BIOGRID_ACCESS_KEY` | *(unset)* | Required for `get_biogrid_interactions`. Free key from <https://webservice.thebiogrid.org/>. When unset, the tool returns an empty result with a warning logged — all other tools work normally. |
 
 Set via a `.env` file in the working directory (loaded automatically) or as shell exports.
 
