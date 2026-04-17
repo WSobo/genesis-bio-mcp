@@ -1136,6 +1136,40 @@ def test_filter_by_trait_unknown_indication_direct_substring():
     assert result[0].trait == "autoimmune thyroid disease"
 
 
+def test_filter_by_trait_biomarker_query_ldl_cholesterol():
+    """Users frequently query by biomarker name. PCSK9 × 'LDL cholesterol' is
+    a textbook GWAS association — must match hits using long-form labels."""
+    hits = [
+        _make_hit("Low density lipoprotein cholesterol levels"),
+        _make_hit("LDL cholesterol levels"),
+        _make_hit("type 2 diabetes"),
+    ]
+    result = filter_by_trait(hits, "LDL cholesterol", efo_terms=None)
+    traits = {h.trait for h in result}
+    assert "Low density lipoprotein cholesterol levels" in traits
+    assert "LDL cholesterol levels" in traits
+    assert "type 2 diabetes" not in traits
+
+
+def test_filter_by_trait_synonyms_additive_to_efo():
+    """EFO label may not include common biomarker abbreviations; the synonym
+    dict is applied additively, not as an XOR fallback."""
+    hits = [_make_hit("LDL-c levels")]
+    # EFO returns the canonical measurement name but no "ldl-c" synonym
+    efo_terms = [
+        EFOTerm(
+            uri="http://www.ebi.ac.uk/efo/EFO_0004611",
+            label="LDL cholesterol measurement",
+            synonyms=[],
+        )
+    ]
+    result = filter_by_trait(hits, "ldl cholesterol", efo_terms=efo_terms)
+    # Without additive merge, "ldl-c levels" wouldn't match
+    # ("ldl cholesterol measurement" isn't a substring); with the merge,
+    # the "ldl-c" synonym from TRAIT_SYNONYMS catches it.
+    assert len(result) == 1
+
+
 # ---------------------------------------------------------------------------
 # SAbDab client tests
 # ---------------------------------------------------------------------------

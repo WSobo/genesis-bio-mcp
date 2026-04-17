@@ -37,6 +37,26 @@ TRAIT_SYNONYMS: dict[str, list[str]] = {
     # and the biomarker names (LDL, total cholesterol, lipid levels).
     "hypercholesterolemia": ["cholesterol", "ldl", "low-density lipoprotein", "lipid"],
     "hypercholesterolaemia": ["cholesterol", "ldl", "low-density lipoprotein", "lipid"],
+    # Biomarker-keyed lipid traits — users frequently query by biomarker name
+    # (e.g. "LDL cholesterol") rather than by clinical disease. Without these
+    # entries, PCSK9 × "LDL cholesterol" returns nothing despite being a
+    # textbook GWAS association.
+    "ldl cholesterol": [
+        "ldl",
+        "ldl-c",
+        "low-density lipoprotein",
+        "low density lipoprotein",
+        "ldl cholesterol",
+    ],
+    "hdl cholesterol": [
+        "hdl",
+        "hdl-c",
+        "high-density lipoprotein",
+        "high density lipoprotein",
+        "hdl cholesterol",
+    ],
+    "triglycerides": ["triglyceride", "tag"],
+    "total cholesterol": ["total cholesterol", "cholesterol", "lipid"],
     # Obesity / FTO — GWAS Catalog labels vary widely. "body mass index" and
     # "obesity" are most common; "adipose"/"fat mass"/"body weight" appear for
     # body composition GWAS. "waist" catches waist circumference and waist-hip ratio.
@@ -121,15 +141,19 @@ def filter_by_trait(
     efo_uris: set[str] = set()
     match_strings: set[str] = {trait_norm}
 
+    # EFO terms when available — covers ontology-resolved labels and synonyms.
     if efo_terms:
         for t in efo_terms:
             if t.uri:
                 efo_uris.add(t.uri)
             match_strings.add(_normalize(t.label))
             match_strings.update(_normalize(s) for s in t.synonyms)
-    else:
-        # No EFO data — fall back to hardcoded synonyms
-        match_strings.update(_normalize(s) for s in TRAIT_SYNONYMS.get(trait_norm, []))
+
+    # Always include hardcoded synonyms in addition to EFO. EFO can resolve
+    # the canonical label without covering common biomarker abbreviations
+    # (e.g. EFO returns "LDL cholesterol measurement" but no "ldl"/"ldl-c"
+    # synonyms), so an additive merge keeps both axes of coverage.
+    match_strings.update(_normalize(s) for s in TRAIT_SYNONYMS.get(trait_norm, []))
 
     def _matches(hit: GwasHit) -> bool:
         # Precise: EFO URI match (gene-ID path associations embed efoTraits[].uri)
