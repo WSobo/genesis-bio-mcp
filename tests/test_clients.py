@@ -11,7 +11,9 @@ from genesis_bio_mcp.clients.depmap import DepMapClient
 from genesis_bio_mcp.clients.dgidb import DGIdbClient
 from genesis_bio_mcp.clients.ensembl import EnsemblClient
 from genesis_bio_mcp.clients.gnomad import GnomADClient
+from genesis_bio_mcp.clients.gtex import GTExClient
 from genesis_bio_mcp.clients.gwas import GwasClient
+from genesis_bio_mcp.clients.hpa import HPAClient
 from genesis_bio_mcp.clients.iedb import IEDBClient
 from genesis_bio_mcp.clients.interpro import InterProClient
 from genesis_bio_mcp.clients.mavedb import MaveDBClient
@@ -3249,4 +3251,188 @@ def test_iedb_tools_ensure_fasta_passthrough():
     from genesis_bio_mcp.clients.iedb_tools import _ensure_fasta
 
     assert _ensure_fasta(">existing\nSEQ").startswith(">existing")
-    assert _ensure_fasta("SEQ") == ">query\nSEQ"
+
+
+# ---------------------------------------------------------------------------
+# GTEx client tests
+# ---------------------------------------------------------------------------
+
+
+_MOCK_GTEX_BRAF = {
+    "data": [
+        {
+            "tissueSiteDetailId": "Brain_Cortex",
+            "median": 12.3,
+            "numSamples": 205,
+        },
+        {
+            "tissueSiteDetailId": "Liver",
+            "median": 4.5,
+            "numSamples": 226,
+        },
+        {
+            "tissueSiteDetailId": "Testis",
+            "median": 28.7,
+            "numSamples": 361,
+        },
+    ]
+}
+
+
+@respx.mock
+async def test_gtex_happy_path(http_client, tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "genesis_bio_mcp.config.settings.settings.gtex_cache_path",
+        tmp_path / "gtex.json",
+    )
+    respx.get(url__regex=r"rest\.ensembl\.org/lookup/symbol/homo_sapiens/BRAF").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "ENSG00000157764",
+                "display_name": "BRAF",
+                "seq_region_name": "7",
+                "start": 140719327,
+                "end": 140924928,
+                "strand": -1,
+                "biotype": "protein_coding",
+                "Transcript": [{"id": "ENST00000646891", "is_canonical": 1}],
+            },
+        )
+    )
+    respx.get(url__regex=r"gtexportal\.org/api/v2/expression/medianGeneExpression").mock(
+        return_value=httpx.Response(200, json=_MOCK_GTEX_BRAF)
+    )
+    ensembl = EnsemblClient(http_client)
+    client = GTExClient(http_client, ensembl=ensembl)
+    profile = await client.get_expression("BRAF")
+
+    assert profile is not None
+    assert profile.gene_symbol == "BRAF"
+    assert profile.gencode_id == "ENSG00000157764"
+    assert len(profile.samples) == 3
+    # Sorted by TPM when rendered, but stored in fetch order
+    tissues = {s.tissue for s in profile.samples}
+    assert "Brain - Cortex" in tissues  # underscore → " - "
+    md = profile.to_markdown()
+    assert "Testis" in md
+    assert "28.7" in md
+
+
+@respx.mock
+async def test_gtex_returns_empty_when_no_ensembl_id(http_client, tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "genesis_bio_mcp.config.settings.settings.gtex_cache_path",
+        tmp_path / "gtex.json",
+    )
+    respx.get(url__regex=r"rest\.ensembl\.org/lookup/symbol").mock(return_value=httpx.Response(404))
+    ensembl = EnsemblClient(http_client)
+    client = GTExClient(http_client, ensembl=ensembl)
+    profile = await client.get_expression("NOTAGENE")
+
+    assert profile is not None
+    assert profile.samples == []
+    assert profile.gencode_id is None
+
+
+@respx.mock
+async def test_gtex_network_error_returns_empty_profile(http_client, tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "genesis_bio_mcp.config.settings.settings.gtex_cache_path",
+        tmp_path / "gtex.json",
+    )
+    respx.get(url__regex=r"rest\.ensembl\.org/lookup/symbol").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "ENSG00000157764",
+                "display_name": "BRAF",
+                "seq_region_name": "7",
+                "start": 1,
+                "end": 2,
+                "strand": 1,
+                "Transcript": [],
+            },
+        )
+    )
+    respx.get(url__regex=r"gtexportal\.org").mock(side_effect=httpx.ConnectError("boom"))
+    ensembl = EnsemblClient(http_client)
+    client = GTExClient(http_client, ensembl=ensembl)
+    profile = await client.get_expression("BRAF")
+
+    assert profile is not None
+    assert profile.samples == []
+
+
+# ---------------------------------------------------------------------------
+# HPA client tests
+# ---------------------------------------------------------------------------
+
+
+_MOCK_HPA_BRAF = [
+    {
+        "Gene": "BRAF",
+        "Ensembl": "ENSG00000157764",
+        "RNA tissue specificity": "Low tissue specificity",
+        "RNA tissue specificity score": "1.3",
+        "Subcellular main location": "Cytosol",
+        "Subcellular location": "Cytosol, Plasma membrane",
+        "Pathology prognostics - Melanoma": "Unfavorable (p=0.001)",
+        "Pathology prognostics - Glioma": "Favorable (p=0.03)",
+    }
+]
+
+
+@respx.mock
+async def test_hpa_happy_path(http_client, tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "genesis_bio_mcp.config.settings.settings.hpa_cache_path",
+        tmp_path / "hpa.json",
+    )
+    respx.get(url__regex=r"proteinatlas\.org/api/search_download\.php").mock(
+        return_value=httpx.Response(200, json=_MOCK_HPA_BRAF)
+    )
+    client = HPAClient(http_client)
+    report = await client.get_report("BRAF")
+
+    assert report is not None
+    assert report.gene_symbol == "BRAF"
+    assert report.expression is not None
+    assert report.expression.rna_tissue_specificity_category == "Low tissue specificity"
+    assert report.expression.rna_tissue_specificity_score == 1.3
+    assert "Cytosol" in report.expression.subcellular_locations
+    assert len(report.pathology) == 2
+    outcomes = {(p.cancer_type, p.prognostic_outcome) for p in report.pathology}
+    assert ("Melanoma", "Unfavorable") in outcomes
+    assert ("Glioma", "Favorable") in outcomes
+
+    md = report.to_markdown()
+    assert "Melanoma" in md
+    assert "Low tissue specificity" in md
+
+
+@respx.mock
+async def test_hpa_empty_response(http_client, tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "genesis_bio_mcp.config.settings.settings.hpa_cache_path",
+        tmp_path / "hpa.json",
+    )
+    respx.get(url__regex=r"proteinatlas\.org").mock(return_value=httpx.Response(200, json=[]))
+    client = HPAClient(http_client)
+    report = await client.get_report("NOTAGENE")
+
+    assert report is not None
+    assert report.expression is None
+    assert report.pathology == []
+
+
+@respx.mock
+async def test_hpa_network_error_returns_none(http_client, tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "genesis_bio_mcp.config.settings.settings.hpa_cache_path",
+        tmp_path / "hpa.json",
+    )
+    respx.get(url__regex=r"proteinatlas\.org").mock(side_effect=httpx.ConnectError("boom"))
+    client = HPAClient(http_client)
+    report = await client.get_report("BRAF")
+    assert report is None

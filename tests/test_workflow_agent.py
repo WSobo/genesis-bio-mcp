@@ -47,6 +47,8 @@ def _mock_state() -> MagicMock:
         "myvariant",
         "variant_effects",
         "ensembl",
+        "gtex",
+        "hpa",
     ):
         client = MagicMock()
         for method in (
@@ -70,6 +72,8 @@ def _mock_state() -> MagicMock:
             "get_effects",
             "predict_mhc_binding",
             "get_vep_consequences",
+            "get_expression",
+            "get_report",
         ):
             mock_result = MagicMock()
             mock_result.to_markdown.return_value = f"## Mock {attr}.{method}\n\nData here."
@@ -142,6 +146,8 @@ def test_build_tool_registry_has_all_tools():
         "get_variant_constraints",
         "get_variant_effects",
         "get_variant_consequences",
+        "get_tissue_expression",
+        "get_protein_atlas",
         "get_domain_annotation",
         "get_dms_scores",
         "get_drug_history",

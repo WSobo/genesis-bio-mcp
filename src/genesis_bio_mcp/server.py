@@ -1,6 +1,6 @@
 """genesis_bio_mcp MCP server.
 
-Exposes 25 tools for biomedical database queries:
+Exposes 27 tools for biomedical database queries:
   - resolve_gene                  UniProt + NCBI: gene symbol → canonical IDs
   - get_protein_info              UniProt Swiss-Prot protein annotation
   - get_protein_sequence          UniProt FASTA + biochem + liability scan
@@ -18,6 +18,8 @@ Exposes 25 tools for biomedical database queries:
   - get_variant_constraints       gnomAD: gene-level LoF and missense constraint metrics
   - get_variant_effects           MyVariant + gnomAD + MaveDB + Ensembl VEP: pathogenicity + VEP
   - get_variant_consequences      Ensembl VEP: splice/UTR/regulatory + SIFT/PolyPhen
+  - get_tissue_expression         GTEx: bulk-RNA median TPM across ~54 tissues
+  - get_protein_atlas             HPA: tissue specificity, subcellular, pathology
   - get_domain_annotation         InterPro: domain boundaries, Pfam/SMART, GO terms
   - get_dms_scores                MaveDB: deep mutational scanning score sets
   - get_drug_history              DGIdb + ClinicalTrials.gov: known drugs and trials
@@ -54,7 +56,9 @@ from genesis_bio_mcp.clients.depmap import DepMapClient, load_depmap_cache
 from genesis_bio_mcp.clients.dgidb import DGIdbClient
 from genesis_bio_mcp.clients.ensembl import EnsemblClient
 from genesis_bio_mcp.clients.gnomad import GnomADClient
+from genesis_bio_mcp.clients.gtex import GTExClient
 from genesis_bio_mcp.clients.gwas import GwasClient
+from genesis_bio_mcp.clients.hpa import HPAClient
 from genesis_bio_mcp.clients.iedb import IEDBClient
 from genesis_bio_mcp.clients.iedb_tools import IEDBToolsClient
 from genesis_bio_mcp.clients.interpro import InterProClient
@@ -130,6 +134,8 @@ async def lifespan(server: FastMCP):
         server.state.mavedb = MaveDBClient(client)
         server.state.myvariant = MyVariantClient(client)
         server.state.ensembl = EnsemblClient(client)
+        server.state.gtex = GTExClient(client, ensembl=server.state.ensembl)
+        server.state.hpa = HPAClient(client)
         server.state.variant_effects = VariantEffectsClient(
             gnomad=server.state.gnomad,
             myvariant=server.state.myvariant,
@@ -339,6 +345,14 @@ class GetVariantConsequencesInput(BaseModel):
                 "or (chrom + pos + ref + alt)."
             )
         return self
+
+
+class GetTissueExpressionInput(_GeneInput):
+    """Input for get_tissue_expression."""
+
+
+class GetProteinAtlasInput(_GeneInput):
+    """Input for get_protein_atlas."""
 
 
 class GetDomainAnnotationInput(_GeneInput):
@@ -1192,6 +1206,66 @@ async def get_variant_consequences(params: GetVariantConsequencesInput) -> str:
             f"No VEP consequences found for {params.chrom}:{params.pos} {params.ref}>{params.alt}."
         )
     return _fmt(result, params.response_format, err)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    )
+)
+async def get_tissue_expression(params: GetTissueExpressionInput) -> str:
+    """Retrieve GTEx bulk-RNA median tissue expression (TPM) for a gene.
+
+    Returns per-tissue median TPM across ~54 GTEx tissues (brain subregions,
+    heart, liver, kidney, etc.), sorted by expression level. Use this to
+    answer:
+      - Is the gene expressed in the tissue where the disease manifests?
+      - Is expression restricted enough to give a therapeutic window?
+      - Which tissues might see on-target toxicity?
+
+    GTEx uses GENCODE IDs; we resolve the HGNC symbol → Ensembl ID
+    automatically before querying. Genes without a GENCODE mapping (some
+    non-coding or retired annotations) return an empty profile.
+
+    Args:
+        params (GetTissueExpressionInput): gene_symbol, response_format.
+
+    Returns:
+        Markdown table with the top tissues by median TPM.
+    """
+    symbol, _ = await _resolve_symbol(params.gene_symbol)
+    result = await mcp.state.gtex.get_expression(symbol)
+    return _fmt(result, params.response_format, f"No GTEx expression data found for '{symbol}'.")
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    )
+)
+async def get_protein_atlas(params: GetProteinAtlasInput) -> str:
+    """Retrieve Human Protein Atlas expression, subcellular, and pathology data.
+
+    Returns HPA's RNA tissue-specificity category (Tissue enriched /
+    Group enriched / Tissue enhanced / Low tissue specificity / Not detected),
+    the numerical specificity score, subcellular localization (IHC-based),
+    and prognostic cancer-outcome data per indication.
+
+    Complementary to get_tissue_expression (GTEx): HPA adds protein-level
+    localization and pathology context that bulk RNA cannot provide.
+
+    Args:
+        params (GetProteinAtlasInput): gene_symbol, response_format.
+
+    Returns:
+        Markdown with specificity category, subcellular locations,
+        enhanced tissues, and pathology cancer rows.
+    """
+    symbol, _ = await _resolve_symbol(params.gene_symbol)
+    result = await mcp.state.hpa.get_report(symbol)
+    return _fmt(
+        result, params.response_format, f"No Human Protein Atlas data found for '{symbol}'."
+    )
 
 
 @mcp.tool(

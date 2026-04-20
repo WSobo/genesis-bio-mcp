@@ -1,0 +1,199 @@
+"""Human Protein Atlas (HPA) client.
+
+HPA exposes a per-gene download endpoint that returns a minimal JSON record:
+
+    GET https://www.proteinatlas.org/api/search_download.php?search={symbol}
+        &format=json&columns=g,gs,eg,rnatsm,rnats,scml,scl,prognostic_cancer
+
+Columns:
+- g       — Ensembl gene ID
+- gs      — gene symbol
+- eg      — approved synonyms
+- rnatsm  — RNA tissue specificity category (e.g. 'Tissue enriched')
+- rnats   — RNA tissue specificity score (float)
+- scml    — subcellular main location
+- scl     — subcellular additional locations
+- prognostic_cancer — multiple columns, one per cancer indication
+
+Responses are slow (~2 s/gene) so we disk-cache per symbol with a 7-day TTL,
+matching the SAbDab pattern.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import re
+import time
+from pathlib import Path
+
+import httpx
+
+from genesis_bio_mcp.config.settings import settings
+from genesis_bio_mcp.models import HPAExpression, HPAPathologyData, ProteinAtlasReport
+
+logger = logging.getLogger(__name__)
+
+_HPA_URL = "https://www.proteinatlas.org/api/search_download.php"
+_HPA_COLUMNS = "g,gs,eg,rnatsm,rnats,scml,scl,prognostic_cancer"
+_SEMAPHORE = asyncio.Semaphore(2)
+
+
+class HPAClient:
+    """Session + disk-cached HPA client.
+
+    Returns ``None`` on unrecoverable errors. Returns an empty
+    :class:`ProteinAtlasReport` (expression=None, pathology=[]) when HPA
+    has no matching entry for the gene.
+    """
+
+    def __init__(self, client: httpx.AsyncClient) -> None:
+        self._client = client
+        self._session_cache: dict[str, ProteinAtlasReport] = {}
+        self._disk_cache_path: Path = settings.hpa_cache_path
+        self._disk_cache: dict[str, dict] = _load_disk_cache(self._disk_cache_path)
+
+    async def get_report(self, gene_symbol: str) -> ProteinAtlasReport | None:
+        symbol = gene_symbol.strip().upper()
+
+        if symbol in self._session_cache:
+            logger.debug("HPA session cache hit: %s", symbol)
+            return self._session_cache[symbol]
+
+        disk_entry = self._disk_cache.get(symbol)
+        if (
+            disk_entry
+            and time.time() - disk_entry.get("fetched_at", 0) < settings.hpa_cache_ttl_secs
+        ):
+            try:
+                report = ProteinAtlasReport(**disk_entry["report"])
+                self._session_cache[symbol] = report
+                return report
+            except Exception as exc:
+                logger.debug("HPA disk cache entry for %s stale or malformed: %s", symbol, exc)
+
+        async with _SEMAPHORE:
+            raw = await self._fetch(symbol)
+        if raw is None:
+            return None
+
+        report = _parse_hpa(raw, symbol)
+        self._session_cache[symbol] = report
+        if report.expression is not None or report.pathology:
+            self._disk_cache[symbol] = {
+                "fetched_at": time.time(),
+                "report": report.model_dump(),
+            }
+            _save_disk_cache(self._disk_cache_path, self._disk_cache)
+        return report
+
+    async def _fetch(self, symbol: str) -> dict | None:
+        params = {
+            "search": symbol,
+            "format": "json",
+            "columns": _HPA_COLUMNS,
+        }
+        try:
+            resp = await self._client.get(_HPA_URL, params=params, timeout=25.0)
+            if resp.status_code == 404:
+                return None
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            logger.warning("HPA fetch failed for %s: %s", symbol, exc)
+            return None
+
+        # HPA returns a list; the first element matching the exact symbol is
+        # the one we want. Free-text search can return near-neighbours.
+        if not isinstance(data, list) or not data:
+            return {}
+        for row in data:
+            if str(row.get("Gene") or row.get("gs") or "").upper() == symbol:
+                return row
+        return data[0]
+
+
+_PROGNOSTIC_KEY = re.compile(r"^Pathology prognostics - (.+)$", re.IGNORECASE)
+
+
+def _parse_hpa(row: dict, symbol: str) -> ProteinAtlasReport:
+    """Convert one HPA row into a :class:`ProteinAtlasReport`."""
+    if not row:
+        return ProteinAtlasReport(gene_symbol=symbol)
+
+    ensembl_id = row.get("Ensembl") or row.get("g")
+    specificity_cat = row.get("RNA tissue specificity") or row.get("rnatsm")
+    specificity_score = row.get("RNA tissue specificity score") or row.get("rnats")
+    try:
+        spec_score_f = float(specificity_score) if specificity_score not in (None, "") else None
+    except (TypeError, ValueError):
+        spec_score_f = None
+
+    subcellular_main = row.get("Subcellular main location") or row.get("scml") or ""
+    subcellular_extra = row.get("Subcellular location") or row.get("scl") or ""
+    subcellular = [
+        s.strip()
+        for s in (str(subcellular_main) + "," + str(subcellular_extra)).split(",")
+        if s and s.strip()
+    ]
+    # Deduplicate, preserve order
+    seen: set[str] = set()
+    subcellular = [s for s in subcellular if not (s in seen or seen.add(s))]
+
+    # "Enhanced tissues" is often a comma-separated cell; if the column wasn't
+    # selected, leave empty — specificity_cat alone is enough for scoring.
+    enhanced_raw = row.get("RNA tissue specific nTPM") or row.get("Tissue expression cluster") or ""
+    enhanced_tissues = [t.strip() for t in str(enhanced_raw).split(";") if t.strip()]
+
+    expression = HPAExpression(
+        gene_symbol=symbol,
+        ensembl_id=str(ensembl_id) if ensembl_id else None,
+        rna_tissue_specificity_category=str(specificity_cat) if specificity_cat else None,
+        rna_tissue_specificity_score=spec_score_f,
+        enhanced_tissues=enhanced_tissues,
+        subcellular_locations=subcellular,
+    )
+
+    pathology: list[HPAPathologyData] = []
+    for key, value in row.items():
+        m = _PROGNOSTIC_KEY.match(str(key))
+        if not m or not value:
+            continue
+        text = str(value).strip()
+        if not text or text.lower() in ("none", "not significant"):
+            continue
+        prognostic = None
+        low = text.lower()
+        # Check "unfavorable" first — "favorable" is a substring of it.
+        if "unfavorable" in low or "unfavourable" in low:
+            prognostic = "Unfavorable"
+        elif "favorable" in low or "favourable" in low:
+            prognostic = "Favorable"
+        pathology.append(
+            HPAPathologyData(
+                cancer_type=m.group(1).strip(),
+                prognostic_outcome=prognostic,
+                staining_intensity=None,
+            )
+        )
+
+    return ProteinAtlasReport(gene_symbol=symbol, expression=expression, pathology=pathology)
+
+
+def _load_disk_cache(path: Path) -> dict[str, dict]:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except Exception as exc:
+        logger.warning("HPA disk cache unreadable at %s: %s", path, exc)
+        return {}
+
+
+def _save_disk_cache(path: Path, cache: dict[str, dict]) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(cache))
+    except Exception as exc:
+        logger.warning("HPA disk cache write failed at %s: %s", path, exc)

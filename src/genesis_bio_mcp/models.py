@@ -1244,6 +1244,144 @@ class BioGRIDInteractome(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Tissue expression — GTEx + Human Protein Atlas
+# ---------------------------------------------------------------------------
+
+
+class GTExExpression(BaseModel):
+    """Median expression of a gene in one GTEx tissue."""
+
+    tissue: str = Field(description="GTEx tissue label, e.g. 'Brain - Cortex'")
+    median_tpm: float = Field(description="Median TPM across donors for this tissue")
+    sample_count: int | None = Field(
+        None, description="Number of donor samples contributing to the median"
+    )
+
+
+class TissueExpressionProfile(BaseModel):
+    """GTEx bulk-RNA median expression profile for a gene across tissues."""
+
+    gene_symbol: str = Field(description="HGNC gene symbol")
+    gencode_id: str | None = Field(
+        None, description="GENCODE ID used to query GTEx (versioned Ensembl ID)"
+    )
+    samples: list[GTExExpression] = Field(
+        default_factory=list,
+        description="Per-tissue median TPM rows, sorted by median TPM descending",
+    )
+
+    def to_markdown(self) -> str:
+        lines = [f"## GTEx tissue expression: {self.gene_symbol}"]
+        if self.gencode_id:
+            lines.append(f"_GENCODE ID_: `{self.gencode_id}`")
+        if not self.samples:
+            lines += ["", "_No GTEx median expression data found_"]
+            return "\n".join(lines)
+
+        top = sorted(self.samples, key=lambda s: s.median_tpm, reverse=True)[:15]
+        lines += [
+            "",
+            "### Top 15 tissues by median TPM",
+            "| Tissue | Median TPM | Samples |",
+            "|---|---:|---:|",
+        ]
+        for s in top:
+            lines.append(
+                f"| {s.tissue} | {s.median_tpm:.2f} | "
+                f"{s.sample_count if s.sample_count is not None else '—'} |"
+            )
+        if len(self.samples) > 15:
+            lines.append(f"\n_...and {len(self.samples) - 15} more tissues_")
+        return "\n".join(lines)
+
+
+class HPAPathologyData(BaseModel):
+    """Prognostic cancer-outcome or staining data from HPA's pathology section."""
+
+    cancer_type: str = Field(description="Cancer indication, e.g. 'Pancreatic cancer'")
+    prognostic_outcome: str | None = Field(
+        None, description="'Favorable' | 'Unfavorable' | None if not significant"
+    )
+    staining_intensity: str | None = Field(
+        None, description="IHC staining category (High/Medium/Low/Not detected)"
+    )
+
+
+class HPAExpression(BaseModel):
+    """HPA-derived tissue/subcellular/pathology summary for a gene."""
+
+    gene_symbol: str = Field(description="HGNC gene symbol")
+    ensembl_id: str | None = Field(None, description="Ensembl gene ID used as HPA key")
+    rna_tissue_specificity_category: str | None = Field(
+        None,
+        description=(
+            "HPA RNA tissue-specificity category: 'Tissue enriched', 'Group enriched', "
+            "'Tissue enhanced', 'Low tissue specificity', or 'Not detected'"
+        ),
+    )
+    rna_tissue_specificity_score: float | None = Field(
+        None, description="HPA numerical specificity score (higher = more restricted)"
+    )
+    enhanced_tissues: list[str] = Field(
+        default_factory=list, description="Tissues flagged as enhanced/enriched by HPA"
+    )
+    subcellular_locations: list[str] = Field(
+        default_factory=list, description="HPA subcellular localization (IHC-based) categories"
+    )
+
+
+class ProteinAtlasReport(BaseModel):
+    """Consolidated Human Protein Atlas report for a gene."""
+
+    gene_symbol: str = Field(description="HGNC gene symbol")
+    expression: HPAExpression | None = Field(
+        None, description="HPA tissue + subcellular expression summary"
+    )
+    pathology: list[HPAPathologyData] = Field(
+        default_factory=list,
+        description="Prognostic cancer outcomes across HPA pathology cancer-type rows",
+    )
+
+    def to_markdown(self) -> str:
+        lines = [f"## Human Protein Atlas: {self.gene_symbol}"]
+        if self.expression is None and not self.pathology:
+            lines += ["", "_No HPA data found_"]
+            return "\n".join(lines)
+
+        exp = self.expression
+        if exp is not None:
+            header = []
+            if exp.ensembl_id:
+                header.append(f"_Ensembl_: `{exp.ensembl_id}`")
+            if exp.rna_tissue_specificity_category:
+                header.append(f"**Specificity:** {exp.rna_tissue_specificity_category}")
+            if exp.rna_tissue_specificity_score is not None:
+                header.append(f"Score: {exp.rna_tissue_specificity_score:.2f}")
+            if header:
+                lines += ["", " | ".join(header)]
+            if exp.enhanced_tissues:
+                lines.append("**Enhanced tissues:** " + ", ".join(exp.enhanced_tissues))
+            if exp.subcellular_locations:
+                lines.append("**Subcellular:** " + ", ".join(exp.subcellular_locations))
+
+        if self.pathology:
+            lines += [
+                "",
+                "### Pathology (prognostic in cancer)",
+                "| Cancer type | Prognostic | Staining |",
+                "|---|---|---|",
+            ]
+            for p in self.pathology[:10]:
+                lines.append(
+                    f"| {p.cancer_type} | {p.prognostic_outcome or '—'} | "
+                    f"{p.staining_intensity or '—'} |"
+                )
+            if len(self.pathology) > 10:
+                lines.append(f"\n_...and {len(self.pathology) - 10} more rows_")
+        return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Drug history (DGIdb + ClinicalTrials.gov)
 # ---------------------------------------------------------------------------
 

@@ -268,6 +268,22 @@ def build_tool_registry(state: Any) -> dict[str, ToolSpec]:
             )
         return result.to_markdown()
 
+    async def _get_tissue_expression_fn(gene_symbol: str) -> str:
+        result = await state.gtex.get_expression(gene_symbol)
+        if result is None:
+            return f"GTEx data temporarily unavailable for '{gene_symbol}'."
+        if not result.samples:
+            return f"No GTEx median expression data found for '{gene_symbol}'."
+        return result.to_markdown()
+
+    async def _get_protein_atlas_fn(gene_symbol: str) -> str:
+        result = await state.hpa.get_report(gene_symbol)
+        if result is None:
+            return f"Human Protein Atlas data temporarily unavailable for '{gene_symbol}'."
+        if result.expression is None and not result.pathology:
+            return f"No Human Protein Atlas data found for '{gene_symbol}'."
+        return result.to_markdown()
+
     async def _get_domain_annotation_fn(gene_symbol: str) -> str:
         protein = await state.uniprot.get_protein(gene_symbol)
         accession = protein.uniprot_accession if protein else gene_symbol
@@ -880,6 +896,58 @@ def build_tool_registry(state: Any) -> dict[str, ToolSpec]:
                 "effects. Distinct from get_variant_effects (which asks 'is it pathogenic')."
             ),
             fn=_get_variant_consequences_fn,
+        ),
+        "get_tissue_expression": ToolSpec(
+            name="get_tissue_expression",
+            description=(
+                "Retrieve GTEx bulk-RNA median tissue expression (TPM) across ~54 tissues. "
+                "Returns per-tissue medians sorted by expression level. Use for therapeutic "
+                "window analysis (tissue restriction) and on-target toxicity risk assessment."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "gene_symbol": {
+                        "type": "string",
+                        "description": "HGNC gene symbol. Example: 'PCSK9'",
+                    }
+                },
+                "required": ["gene_symbol"],
+            },
+            tool_category="gene_annotation",
+            use_when=(
+                "Use when the question hinges on WHERE the gene is expressed — 'is it enriched "
+                "in the disease tissue?', 'where else is it expressed?', or 'is expression "
+                "restricted enough to give a therapeutic window?'."
+            ),
+            fn=_get_tissue_expression_fn,
+        ),
+        "get_protein_atlas": ToolSpec(
+            name="get_protein_atlas",
+            description=(
+                "Retrieve Human Protein Atlas expression, subcellular localization, and "
+                "pathology data. Returns RNA tissue-specificity category (Tissue enriched / "
+                "Group enriched / etc.), specificity score, subcellular locations, and "
+                "prognostic cancer outcome data per indication."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "gene_symbol": {
+                        "type": "string",
+                        "description": "HGNC gene symbol. Example: 'BRAF'",
+                    }
+                },
+                "required": ["gene_symbol"],
+            },
+            tool_category="gene_annotation",
+            use_when=(
+                "Use when protein-level localization matters (membrane vs. nuclear vs. "
+                "secreted) or when prognostic cancer evidence is needed. Complementary to "
+                "get_tissue_expression: GTEx gives RNA across 54 tissues; HPA gives protein "
+                "location + pathology context."
+            ),
+            fn=_get_protein_atlas_fn,
         ),
         "get_dms_scores": ToolSpec(
             name="get_dms_scores",

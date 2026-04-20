@@ -142,6 +142,34 @@ class Settings(BaseSettings):
     )
 
     # ---------------------------------------------------------------------------
+    # GTEx tissue expression cache
+    # ---------------------------------------------------------------------------
+
+    gtex_cache_path: Path = Field(
+        default=Path("data/gtex_cache.json"),
+        description="Disk cache path for GTEx median gene-expression responses.",
+    )
+    gtex_cache_ttl_secs: int = Field(
+        default=604800,
+        description="TTL in seconds for the GTEx disk cache (default 7 days).",
+        gt=0,
+    )
+
+    # ---------------------------------------------------------------------------
+    # Human Protein Atlas cache
+    # ---------------------------------------------------------------------------
+
+    hpa_cache_path: Path = Field(
+        default=Path("data/hpa_cache.json"),
+        description="Disk cache path for HPA per-gene responses.",
+    )
+    hpa_cache_ttl_secs: int = Field(
+        default=604800,
+        description="TTL in seconds for the HPA disk cache (default 7 days).",
+        gt=0,
+    )
+
+    # ---------------------------------------------------------------------------
     # Workflow agent
     # ---------------------------------------------------------------------------
 
