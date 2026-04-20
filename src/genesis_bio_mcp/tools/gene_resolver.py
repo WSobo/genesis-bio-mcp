@@ -4,6 +4,8 @@ Resolution priority chain:
 1. UniProt gene_exact search → HGNC symbol + UniProt accession
 2. NCBI E-utils esearch → NCBI Gene ID
 3. UniProt gene_synonym search for alias resolution
+4. Ensembl /lookup/symbol (optional) — catches symbols that UniProt has
+   retired or that live only in GENCODE/Ensembl annotations.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ import httpx
 from genesis_bio_mcp.models import GeneResolution
 
 if TYPE_CHECKING:
+    from genesis_bio_mcp.clients.ensembl import EnsemblClient
     from genesis_bio_mcp.clients.uniprot import UniProtClient
 
 logger = logging.getLogger(__name__)
@@ -30,6 +33,7 @@ async def resolve_gene(
     *,
     uniprot_client: UniProtClient,
     http_client: httpx.AsyncClient | None = None,
+    ensembl_client: EnsemblClient | None = None,
 ) -> GeneResolution:
     """Resolve a gene name or alias to canonical identifiers.
 
@@ -57,6 +61,15 @@ async def resolve_gene(
         if synonym_entry:
             hgnc_symbol, uniprot_accession, synonyms = _extract_gene_info(synonym_entry)
             source = "uniprot_synonym"
+        elif ensembl_client is not None:
+            # Step 4: Ensembl fallback — handles GENCODE-only or retired-from-
+            # UniProt symbols. We can't populate UniProt accession from here,
+            # but the canonical HGNC symbol and (later) the Ensembl ID are
+            # still useful for downstream tools.
+            ensembl_gene = await ensembl_client.lookup_gene(symbol)
+            if ensembl_gene is not None:
+                hgnc_symbol = ensembl_gene.symbol or symbol
+                source = "ensembl"
 
     # Step 2: NCBI E-utils for gene ID
     ncbi_gene_id: str | None = None

@@ -259,6 +259,15 @@ def build_tool_registry(state: Any) -> dict[str, ToolSpec]:
             return f"Could not parse mutation '{mutation}': {exc}"
         return result.to_markdown()
 
+    async def _get_variant_consequences_fn(gene_symbol: str, mutation: str) -> str:
+        result = await state.ensembl.get_vep_consequences(gene_symbol, mutation)
+        if result is None:
+            return (
+                f"No Ensembl VEP consequences returned for {gene_symbol} {mutation}. "
+                "Check that the gene symbol is canonical and the mutation form is HGVS.p."
+            )
+        return result.to_markdown()
+
     async def _get_domain_annotation_fn(gene_symbol: str) -> str:
         protein = await state.uniprot.get_protein(gene_symbol)
         accession = protein.uniprot_accession if protein else gene_symbol
@@ -839,6 +848,38 @@ def build_tool_registry(state: Any) -> dict[str, ToolSpec]:
                 "in one step."
             ),
             fn=_get_variant_effects_fn,
+        ),
+        "get_variant_consequences": ToolSpec(
+            name="get_variant_consequences",
+            description=(
+                "Predict variant consequences via Ensembl VEP: splice-donor/acceptor, UTR, "
+                "regulatory-region overlap, coding change, and per-transcript impact. "
+                "Returns SIFT and PolyPhen-2 predictions (complementary to dbNSFP's, which "
+                "get_variant_effects already surfaces)."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "gene_symbol": {
+                        "type": "string",
+                        "description": "HGNC gene symbol. Example: 'BRAF'",
+                    },
+                    "mutation": {
+                        "type": "string",
+                        "description": (
+                            "Protein change in HGVS.p form, e.g. 'V600E' or 'p.Val600Glu'."
+                        ),
+                    },
+                },
+                "required": ["gene_symbol", "mutation"],
+            },
+            tool_category="protein_engineering",
+            use_when=(
+                "Use when the LOCATION of a variant matters — splice-impacting intronic variants, "
+                "UTR variants with regulatory implications, or when dissecting transcript-isoform "
+                "effects. Distinct from get_variant_effects (which asks 'is it pathogenic')."
+            ),
+            fn=_get_variant_consequences_fn,
         ),
         "get_dms_scores": ToolSpec(
             name="get_dms_scores",

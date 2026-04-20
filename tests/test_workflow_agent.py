@@ -46,6 +46,7 @@ def _mock_state() -> MagicMock:
         "mavedb",
         "myvariant",
         "variant_effects",
+        "ensembl",
     ):
         client = MagicMock()
         for method in (
@@ -68,6 +69,7 @@ def _mock_state() -> MagicMock:
             "get_dms_scores",
             "get_effects",
             "predict_mhc_binding",
+            "get_vep_consequences",
         ):
             mock_result = MagicMock()
             mock_result.to_markdown.return_value = f"## Mock {attr}.{method}\n\nData here."
@@ -118,7 +120,7 @@ def _make_response(stop_reason: str, content: list) -> MagicMock:
 
 
 def test_build_tool_registry_has_all_tools():
-    """Registry must contain all 15 expected tools and each ToolSpec must be valid."""
+    """Registry must contain all expected tools and each ToolSpec must be valid."""
     state = _mock_state()
     registry = build_tool_registry(state)
 
@@ -139,6 +141,7 @@ def test_build_tool_registry_has_all_tools():
         "get_mhc_binding",
         "get_variant_constraints",
         "get_variant_effects",
+        "get_variant_consequences",
         "get_domain_annotation",
         "get_dms_scores",
         "get_drug_history",
@@ -564,7 +567,7 @@ async def test_resolve_symbol_returns_canonical(monkeypatch):
     from genesis_bio_mcp import server
     from genesis_bio_mcp.models import GeneResolution
 
-    async def _mock_resolve(gene_name, *, uniprot_client):
+    async def _mock_resolve(gene_name, *, uniprot_client, ensembl_client=None):
         return GeneResolution(
             hgnc_symbol="ERBB2",
             ncbi_gene_id="2064",

@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from genesis_bio_mcp.clients.ensembl import EnsemblClient
 from genesis_bio_mcp.clients.gnomad import GnomADClient
 from genesis_bio_mcp.clients.mavedb import MaveDBClient
 from genesis_bio_mcp.clients.myvariant import MyVariantClient
@@ -47,10 +48,12 @@ class VariantEffectsClient:
         gnomad: GnomADClient,
         myvariant: MyVariantClient,
         mavedb: MaveDBClient,
+        ensembl: EnsemblClient,
     ) -> None:
         self._gnomad = gnomad
         self._myvariant = myvariant
         self._mavedb = mavedb
+        self._ensembl = ensembl
 
     async def get_effects(self, gene_symbol: str, mutation: str) -> VariantEffects:
         """Return a consolidated variant-effect report for *gene_symbol* + *mutation*.
@@ -97,13 +100,22 @@ class VariantEffectsClient:
             _, pos, new = parse_protein_change(mutation)
             annotation_task = self._myvariant.query_by_protein_change(symbol, pos, new)
         dms_task = self._collect_dms_scores(symbol, hgvs_p)
+        # VEP consequences are orthogonal to MyVariant's dbNSFP-sourced SIFT/
+        # PolyPhen — Ensembl returns its own predictors plus splice/UTR/
+        # regulatory overlap, which dbNSFP doesn't cover.
+        vep_task = self._ensembl.get_vep_consequences(symbol, hgvs_p)
 
-        annotation, dms_scores = await asyncio.gather(annotation_task, dms_task)
+        annotation, dms_scores, vep = await asyncio.gather(annotation_task, dms_task, vep_task)
 
         if annotation is None:
             notes.append(
                 "MyVariant.info returned no record for this variant — it may be too rare to be "
                 "indexed with downstream annotations yet."
+            )
+        if vep is None:
+            notes.append(
+                "Ensembl VEP returned no consequence prediction — canonical transcript "
+                "may be unavailable or the HGVS form was rejected."
             )
 
         return VariantEffects(
@@ -114,6 +126,7 @@ class VariantEffectsClient:
             gnomad_variant_id=variant_id,
             annotation=annotation,
             dms_scores=dms_scores,
+            vep_consequences=vep,
             notes=notes,
         )
 

@@ -417,6 +417,154 @@ class MHCBindingResults(BaseModel):
         return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# Ensembl gene + VEP
+# ---------------------------------------------------------------------------
+
+
+class TranscriptInfo(BaseModel):
+    """One transcript isoform from an Ensembl gene record."""
+
+    transcript_id: str = Field(description="Ensembl transcript ID, e.g. 'ENST00000288602'")
+    is_canonical: bool = Field(
+        default=False, description="True if this is the Ensembl-canonical transcript"
+    )
+    biotype: str | None = Field(None, description="Transcript biotype, e.g. 'protein_coding'")
+    length: int | None = Field(None, description="Transcript length in bases")
+
+
+class EnsemblGene(BaseModel):
+    """Gene coordinates and transcript list from Ensembl /lookup/symbol."""
+
+    ensembl_id: str = Field(description="Ensembl gene ID, e.g. 'ENSG00000157764'")
+    symbol: str = Field(description="HGNC symbol (uppercased)")
+    chrom: str = Field(description="Chromosome name, e.g. '7' or 'X'")
+    start: int = Field(description="1-indexed start coordinate on the assembly")
+    end: int = Field(description="1-indexed end coordinate on the assembly")
+    strand: int = Field(description="Strand: +1 forward, -1 reverse, 0 unknown")
+    biotype: str | None = Field(None, description="Gene biotype, e.g. 'protein_coding'")
+    canonical_transcript_id: str | None = Field(
+        None, description="Ensembl ID of the canonical transcript, when set"
+    )
+    transcripts: list[TranscriptInfo] = Field(
+        default_factory=list, description="All transcript isoforms for the gene"
+    )
+
+    def to_markdown(self) -> str:
+        lines = [
+            f"## Ensembl: {self.symbol} ({self.ensembl_id})",
+            f"**Location:** {self.chrom}:{self.start}-{self.end} "
+            f"(strand {'+' if self.strand > 0 else '-' if self.strand < 0 else '?'})",
+        ]
+        if self.biotype:
+            lines.append(f"**Biotype:** {self.biotype}")
+        if self.canonical_transcript_id:
+            lines.append(f"**Canonical transcript:** `{self.canonical_transcript_id}`")
+        if self.transcripts:
+            lines += [
+                "",
+                f"**Transcripts ({len(self.transcripts)}):**",
+                "| Transcript | Canonical | Biotype | Length |",
+                "|---|---|---|---|",
+            ]
+            for t in self.transcripts[:10]:
+                lines.append(
+                    f"| `{t.transcript_id}` | {'✓' if t.is_canonical else ''} | "
+                    f"{t.biotype or '—'} | {t.length or '—'} |"
+                )
+            if len(self.transcripts) > 10:
+                lines.append(f"\n_...and {len(self.transcripts) - 10} more transcripts_")
+        return "\n".join(lines)
+
+
+class VEPConsequence(BaseModel):
+    """One transcript-level consequence entry from Ensembl VEP."""
+
+    consequence_term: str = Field(
+        description="Comma-joined SO consequence terms, e.g. 'missense_variant'"
+    )
+    impact: str | None = Field(None, description="VEP severity: HIGH, MODERATE, LOW, MODIFIER")
+    transcript_id: str | None = Field(None, description="Ensembl transcript ID")
+    gene_symbol: str | None = Field(None, description="Gene symbol reported by VEP")
+    biotype: str | None = Field(None, description="Transcript biotype")
+    canonical: bool = Field(default=False, description="True if canonical transcript")
+    sift_score: float | None = Field(None, description="SIFT score (0–1; lower = more damaging)")
+    sift_prediction: str | None = Field(None, description="SIFT category string")
+    polyphen_score: float | None = Field(
+        None, description="PolyPhen-2 score (0–1; higher = more damaging)"
+    )
+    polyphen_prediction: str | None = Field(None, description="PolyPhen-2 category string")
+    amino_acids: str | None = Field(None, description="Ref/alt AA, e.g. 'V/E'")
+    codons: str | None = Field(None, description="Ref/alt codon, e.g. 'gTg/gAg'")
+
+
+class VEPConsequenceReport(BaseModel):
+    """Aggregated VEP consequence report for a variant."""
+
+    input_label: str = Field(description="The query string (HGVS or region+allele)")
+    most_severe_consequence: str | None = Field(
+        None, description="VEP's most-severe consequence term across all transcripts"
+    )
+    assembly_name: str | None = Field(None, description="Reference assembly, e.g. 'GRCh38'")
+    consequences: list[VEPConsequence] = Field(
+        default_factory=list,
+        description="Per-transcript consequence entries (canonical only by default)",
+    )
+    regulatory_overlaps: list[str] = Field(
+        default_factory=list, description="Regulatory feature types overlapping the variant"
+    )
+
+    def to_markdown(self) -> str:
+        lines = [
+            f"## VEP Consequences: `{self.input_label}`",
+        ]
+        header = []
+        if self.most_severe_consequence:
+            header.append(f"**Most severe:** `{self.most_severe_consequence}`")
+        if self.assembly_name:
+            header.append(f"**Assembly:** {self.assembly_name}")
+        if header:
+            lines += ["", " | ".join(header)]
+
+        if self.consequences:
+            lines += [
+                "",
+                "### Transcript consequences",
+                "| Transcript | Canonical | Consequence | Impact | AA | SIFT | PolyPhen |",
+                "|---|---|---|---|---|---|---|",
+            ]
+            for c in self.consequences[:15]:
+                sift = (
+                    f"{c.sift_score:.2f} ({c.sift_prediction})" if c.sift_score is not None else "—"
+                )
+                pph = (
+                    f"{c.polyphen_score:.2f} ({c.polyphen_prediction})"
+                    if c.polyphen_score is not None
+                    else "—"
+                )
+                lines.append(
+                    f"| `{c.transcript_id or '—'}` | {'✓' if c.canonical else ''} | "
+                    f"{c.consequence_term} | {c.impact or '—'} | {c.amino_acids or '—'} | "
+                    f"{sift} | {pph} |"
+                )
+            if len(self.consequences) > 15:
+                lines.append(f"\n_...and {len(self.consequences) - 15} more transcript rows_")
+        else:
+            lines += ["", "_No transcript consequences returned_"]
+
+        if self.regulatory_overlaps:
+            lines += [
+                "",
+                "**Regulatory overlap:** " + ", ".join(sorted(set(self.regulatory_overlaps))),
+            ]
+        return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Variant effects aggregator
+# ---------------------------------------------------------------------------
+
+
 class VariantEffects(BaseModel):
     """Fanned-out variant effect report for a gene + protein change."""
 
@@ -433,6 +581,10 @@ class VariantEffects(BaseModel):
     )
     dms_scores: list[MaveDBVariantScore] = Field(
         default_factory=list, description="Per-variant DMS fitness scores from MaveDB"
+    )
+    vep_consequences: VEPConsequenceReport | None = Field(
+        default=None,
+        description="Ensembl VEP consequence report (splice/UTR/regulatory overlap + SIFT/PolyPhen)",
     )
     notes: list[str] = Field(
         default_factory=list,
@@ -532,6 +684,23 @@ class VariantEffects(BaseModel):
                 lines.append(f"- `{s.urn}`: **{s.score:.3f}**{eps} — {s.title[:80]}")
             if len(self.dms_scores) > 5:
                 lines.append(f"- _...and {len(self.dms_scores) - 5} more_")
+
+        if self.vep_consequences is not None:
+            vep = self.vep_consequences
+            lines += ["", "### VEP consequences"]
+            if vep.most_severe_consequence:
+                lines.append(f"**Most severe:** `{vep.most_severe_consequence}`")
+            for c in vep.consequences[:5]:
+                sift = f" SIFT={c.sift_score:.2f}" if c.sift_score is not None else ""
+                pph = f" PolyPhen={c.polyphen_score:.2f}" if c.polyphen_score is not None else ""
+                lines.append(
+                    f"- `{c.transcript_id or '—'}`: {c.consequence_term} "
+                    f"({c.impact or '—'}){sift}{pph}"
+                )
+            if vep.regulatory_overlaps:
+                lines.append(
+                    "**Regulatory overlap:** " + ", ".join(sorted(set(vep.regulatory_overlaps)))
+                )
 
         if self.notes:
             lines += ["", "_Notes:_ " + "; ".join(self.notes)]

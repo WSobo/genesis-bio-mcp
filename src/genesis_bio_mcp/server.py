@@ -1,6 +1,6 @@
 """genesis_bio_mcp MCP server.
 
-Exposes 24 tools for biomedical database queries:
+Exposes 25 tools for biomedical database queries:
   - resolve_gene                  UniProt + NCBI: gene symbol → canonical IDs
   - get_protein_info              UniProt Swiss-Prot protein annotation
   - get_protein_sequence          UniProt FASTA + biochem + liability scan
@@ -16,7 +16,8 @@ Exposes 24 tools for biomedical database queries:
   - get_epitope_data              IEDB: known B-cell epitopes for an antigen
   - get_mhc_binding                IEDB NextGen: MHC-I/II binding prediction (T-cell epitopes)
   - get_variant_constraints       gnomAD: gene-level LoF and missense constraint metrics
-  - get_variant_effects           MyVariant + gnomAD + MaveDB: mutation-level pathogenicity
+  - get_variant_effects           MyVariant + gnomAD + MaveDB + Ensembl VEP: pathogenicity + VEP
+  - get_variant_consequences      Ensembl VEP: splice/UTR/regulatory + SIFT/PolyPhen
   - get_domain_annotation         InterPro: domain boundaries, Pfam/SMART, GO terms
   - get_dms_scores                MaveDB: deep mutational scanning score sets
   - get_drug_history              DGIdb + ClinicalTrials.gov: known drugs and trials
@@ -51,6 +52,7 @@ from genesis_bio_mcp.clients.chembl import ChEMBLClient
 from genesis_bio_mcp.clients.clinical_trials import ClinicalTrialsClient
 from genesis_bio_mcp.clients.depmap import DepMapClient, load_depmap_cache
 from genesis_bio_mcp.clients.dgidb import DGIdbClient
+from genesis_bio_mcp.clients.ensembl import EnsemblClient
 from genesis_bio_mcp.clients.gnomad import GnomADClient
 from genesis_bio_mcp.clients.gwas import GwasClient
 from genesis_bio_mcp.clients.iedb import IEDBClient
@@ -127,10 +129,12 @@ async def lifespan(server: FastMCP):
         server.state.iedb_tools = IEDBToolsClient(client)
         server.state.mavedb = MaveDBClient(client)
         server.state.myvariant = MyVariantClient(client)
+        server.state.ensembl = EnsemblClient(client)
         server.state.variant_effects = VariantEffectsClient(
             gnomad=server.state.gnomad,
             myvariant=server.state.myvariant,
             mavedb=server.state.mavedb,
+            ensembl=server.state.ensembl,
         )
         server.state.dgidb = DGIdbClient(client)
         server.state.clinical_trials = ClinicalTrialsClient(client)
@@ -158,7 +162,11 @@ async def _resolve_symbol(gene_name: str) -> tuple[str, str | None]:
         (hgnc_symbol, ncbi_gene_id) — ncbi_gene_id may be None if NCBI lookup failed.
     """
     try:
-        resolution = await _resolve_gene(gene_name, uniprot_client=mcp.state.uniprot)
+        resolution = await _resolve_gene(
+            gene_name,
+            uniprot_client=mcp.state.uniprot,
+            ensembl_client=getattr(mcp.state, "ensembl", None),
+        )
         symbol = resolution.hgnc_symbol or gene_name.strip().upper()
         return symbol, resolution.ncbi_gene_id
     except Exception:
@@ -276,6 +284,61 @@ class GetVariantEffectsInput(_GeneInput):
         min_length=3,
         max_length=50,
     )
+
+
+class GetVariantConsequencesInput(BaseModel):
+    """Input for get_variant_consequences.
+
+    Accepts any ONE of three query shapes (validated by the model_validator below):
+      - ``gene_symbol`` + ``mutation`` (most common; resolves to canonical transcript HGVS.p)
+      - ``hgvs_genomic`` (e.g. ``'7:g.140753336A>T'``)
+      - ``chrom`` + ``pos`` + ``ref`` + ``alt``
+    """
+
+    model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True, extra="forbid")
+
+    gene_symbol: str | None = Field(
+        default=None,
+        description="HGNC symbol paired with `mutation`. Required unless HGVS or coordinates are supplied.",
+    )
+    mutation: str | None = Field(
+        default=None,
+        description="Protein change paired with `gene_symbol`, e.g. 'V600E' or 'p.Val600Glu'.",
+    )
+    hgvs_genomic: str | None = Field(
+        default=None,
+        description="HGVS.g form, e.g. '7:g.140753336A>T'. Use when you already have coordinates.",
+    )
+    chrom: str | None = Field(
+        default=None, description="Chromosome, e.g. '7' (paired with pos/ref/alt)."
+    )
+    pos: int | None = Field(
+        default=None, description="1-indexed genomic position (paired with chrom/ref/alt)."
+    )
+    ref: str | None = Field(
+        default=None, description="Reference allele (paired with chrom/pos/alt)."
+    )
+    alt: str | None = Field(
+        default=None, description="Alternate allele (paired with chrom/pos/ref)."
+    )
+    include_all_transcripts: bool = Field(
+        default=False,
+        description="If True, return consequences across every transcript (can be 20+). Defaults to canonical only.",
+    )
+    response_format: Literal["markdown", "json"] = _RESPONSE_FORMAT_FIELD
+
+    @model_validator(mode="after")
+    def _exactly_one_query_shape(self) -> GetVariantConsequencesInput:
+        shape_gene = bool(self.gene_symbol and self.mutation)
+        shape_hgvs = bool(self.hgvs_genomic)
+        shape_coord = all(v is not None for v in (self.chrom, self.pos, self.ref, self.alt))
+        count = sum([shape_gene, shape_hgvs, shape_coord])
+        if count != 1:
+            raise ValueError(
+                "Provide exactly one of: (gene_symbol + mutation), hgvs_genomic, "
+                "or (chrom + pos + ref + alt)."
+            )
+        return self
 
 
 class GetDomainAnnotationInput(_GeneInput):
@@ -1068,6 +1131,67 @@ async def get_variant_effects(params: GetVariantEffectsInput) -> str:
     except ValueError as exc:
         return _fmt(None, params.response_format, str(exc))
     return _fmt(result, params.response_format, "")
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    )
+)
+async def get_variant_consequences(params: GetVariantConsequencesInput) -> str:
+    """Predict functional consequences of a variant via Ensembl VEP.
+
+    Distinct from ``get_variant_effects`` (pathogenicity / clinical) — this
+    tool answers *what does the variant hit*: splice donor/acceptor, 5'/3'
+    UTR, regulatory region, coding change, and which transcripts are
+    affected. Returns VEP's SIFT and PolyPhen predictions, which are
+    complementary to the dbNSFP-sourced SIFT/PolyPhen surfaced by MyVariant.
+    Reports regulatory feature overlap (promoter, enhancer, CTCF site) when
+    the variant falls inside one.
+
+    Use this when the *location* of a variant matters — splice-impacting
+    intronic variants, UTR variants with regulatory implications, non-coding
+    variants pulled from GWAS fine-mapping, or when dissecting transcript-
+    isoform-specific effects.
+
+    Args:
+        params (GetVariantConsequencesInput): provide exactly one of:
+            gene_symbol + mutation, hgvs_genomic, or chrom+pos+ref+alt.
+            ``include_all_transcripts=True`` returns every transcript
+            (default canonical only).
+
+    Returns:
+        Markdown with most-severe consequence, per-transcript effects,
+        SIFT/PolyPhen predictions, and regulatory feature overlap.
+    """
+    ensembl = mcp.state.ensembl
+    if params.gene_symbol and params.mutation:
+        symbol, _ = await _resolve_symbol(params.gene_symbol)
+        result = await ensembl.get_vep_consequences(
+            symbol,
+            params.mutation,
+            include_all_transcripts=params.include_all_transcripts,
+        )
+        err = f"No VEP consequences found for {symbol} {params.mutation}."
+    elif params.hgvs_genomic:
+        result = await ensembl.get_vep_by_hgvs(
+            params.hgvs_genomic,
+            include_all_transcripts=params.include_all_transcripts,
+        )
+        err = f"No VEP consequences found for '{params.hgvs_genomic}'."
+    else:
+        # Ensembl region form: "{chrom}:{pos}-{pos}:{strand}". Strand 1 is
+        # a safe default since VEP normalizes to forward-strand alleles.
+        region = f"{params.chrom}:{params.pos}-{params.pos}:1"
+        result = await ensembl.get_vep_by_region(
+            region,
+            params.alt or "",
+            include_all_transcripts=params.include_all_transcripts,
+        )
+        err = (
+            f"No VEP consequences found for {params.chrom}:{params.pos} {params.ref}>{params.alt}."
+        )
+    return _fmt(result, params.response_format, err)
 
 
 @mcp.tool(

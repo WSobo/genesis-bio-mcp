@@ -9,6 +9,7 @@ from genesis_bio_mcp.clients.biogrid import BioGRIDClient
 from genesis_bio_mcp.clients.clinical_trials import ClinicalTrialsClient
 from genesis_bio_mcp.clients.depmap import DepMapClient
 from genesis_bio_mcp.clients.dgidb import DGIdbClient
+from genesis_bio_mcp.clients.ensembl import EnsemblClient
 from genesis_bio_mcp.clients.gnomad import GnomADClient
 from genesis_bio_mcp.clients.gwas import GwasClient
 from genesis_bio_mcp.clients.iedb import IEDBClient
@@ -715,6 +716,150 @@ async def test_biogrid_empty_results(http_client, monkeypatch):
     assert result.total_interactions == 0
     assert result.unique_partners == 0
     assert result.interactions == []
+
+
+# ---------------------------------------------------------------------------
+# Ensembl client tests
+# ---------------------------------------------------------------------------
+
+
+_MOCK_ENSEMBL_LOOKUP_BRAF = {
+    "id": "ENSG00000157764",
+    "display_name": "BRAF",
+    "seq_region_name": "7",
+    "start": 140719327,
+    "end": 140924928,
+    "strand": -1,
+    "biotype": "protein_coding",
+    "Transcript": [
+        {
+            "id": "ENST00000646891",
+            "is_canonical": 1,
+            "biotype": "protein_coding",
+            "length": 6490,
+        },
+        {
+            "id": "ENST00000288602",
+            "is_canonical": 0,
+            "biotype": "protein_coding",
+            "length": 2949,
+        },
+    ],
+}
+
+_MOCK_ENSEMBL_VEP_V600E = [
+    {
+        "input": "ENST00000646891:p.Val600Glu",
+        "most_severe_consequence": "missense_variant",
+        "assembly_name": "GRCh38",
+        "transcript_consequences": [
+            {
+                "transcript_id": "ENST00000646891",
+                "gene_symbol": "BRAF",
+                "canonical": 1,
+                "biotype": "protein_coding",
+                "impact": "MODERATE",
+                "consequence_terms": ["missense_variant"],
+                "sift_score": 0.0,
+                "sift_prediction": "deleterious",
+                "polyphen_score": 0.95,
+                "polyphen_prediction": "probably_damaging",
+                "amino_acids": "V/E",
+                "codons": "gTg/gAg",
+            },
+            {
+                "transcript_id": "ENST00000288602",
+                "gene_symbol": "BRAF",
+                "canonical": 0,
+                "biotype": "protein_coding",
+                "impact": "MODERATE",
+                "consequence_terms": ["missense_variant"],
+            },
+        ],
+        "regulatory_feature_consequences": [],
+    }
+]
+
+
+@respx.mock
+async def test_ensembl_lookup_gene_happy_path(http_client):
+    respx.get(url__regex=r"rest\.ensembl\.org/lookup/symbol/homo_sapiens/BRAF").mock(
+        return_value=httpx.Response(200, json=_MOCK_ENSEMBL_LOOKUP_BRAF)
+    )
+    client = EnsemblClient(http_client)
+    gene = await client.lookup_gene("braf")
+
+    assert gene is not None
+    assert gene.ensembl_id == "ENSG00000157764"
+    assert gene.symbol == "BRAF"
+    assert gene.chrom == "7"
+    assert gene.strand == -1
+    assert gene.canonical_transcript_id == "ENST00000646891"
+    assert len(gene.transcripts) == 2
+    md = gene.to_markdown()
+    assert "ENSG00000157764" in md
+    assert "ENST00000646891" in md
+
+
+@respx.mock
+async def test_ensembl_lookup_gene_404(http_client):
+    respx.get(url__regex=r"rest\.ensembl\.org/lookup/symbol/homo_sapiens/NOTAGENE").mock(
+        return_value=httpx.Response(404)
+    )
+    client = EnsemblClient(http_client)
+    gene = await client.lookup_gene("NOTAGENE")
+    assert gene is None
+
+
+@respx.mock
+async def test_ensembl_get_vep_by_hgvs_canonical_only(http_client):
+    respx.get(url__regex=r"rest\.ensembl\.org/vep/human/hgvs/ENST00000646891:p\.Val600Glu").mock(
+        return_value=httpx.Response(200, json=_MOCK_ENSEMBL_VEP_V600E)
+    )
+    client = EnsemblClient(http_client)
+    report = await client.get_vep_by_hgvs("ENST00000646891:p.Val600Glu")
+
+    assert report is not None
+    assert report.most_severe_consequence == "missense_variant"
+    assert report.assembly_name == "GRCh38"
+    assert len(report.consequences) == 1
+    assert report.consequences[0].canonical is True
+    assert report.consequences[0].sift_score == 0.0
+    assert report.consequences[0].polyphen_prediction == "probably_damaging"
+
+
+@respx.mock
+async def test_ensembl_get_vep_all_transcripts(http_client):
+    respx.get(url__regex=r"rest\.ensembl\.org/vep/human/hgvs").mock(
+        return_value=httpx.Response(200, json=_MOCK_ENSEMBL_VEP_V600E)
+    )
+    client = EnsemblClient(http_client)
+    report = await client.get_vep_by_hgvs(
+        "ENST00000646891:p.Val600Glu", include_all_transcripts=True
+    )
+    assert report is not None
+    assert len(report.consequences) == 2
+
+
+@respx.mock
+async def test_ensembl_get_vep_consequences_combined(http_client):
+    respx.get(url__regex=r"rest\.ensembl\.org/lookup/symbol/homo_sapiens/BRAF").mock(
+        return_value=httpx.Response(200, json=_MOCK_ENSEMBL_LOOKUP_BRAF)
+    )
+    respx.get(url__regex=r"rest\.ensembl\.org/vep/human/hgvs").mock(
+        return_value=httpx.Response(200, json=_MOCK_ENSEMBL_VEP_V600E)
+    )
+    client = EnsemblClient(http_client)
+    report = await client.get_vep_consequences("BRAF", "p.Val600Glu")
+    assert report is not None
+    assert report.most_severe_consequence == "missense_variant"
+
+
+@respx.mock
+async def test_ensembl_network_failure_returns_none(http_client):
+    respx.get(url__regex=r"rest\.ensembl\.org").mock(side_effect=httpx.ConnectTimeout("boom"))
+    client = EnsemblClient(http_client)
+    assert await client.lookup_gene("BRAF") is None
 
 
 # ---------------------------------------------------------------------------
@@ -2778,11 +2923,51 @@ async def test_variant_effects_aggregator_happy_path(http_client):
     respx.get("https://api.mavedb.org/api/v1/score-sets/urn:mavedb:000001/scores").mock(
         return_value=httpx.Response(200, text=MOCK_MAVEDB_BRCA1_SCORES_CSV)
     )
+    # Ensembl gene lookup + VEP (so VEP note isn't emitted)
+    respx.get(url__regex=r"rest\.ensembl\.org/lookup/symbol/homo_sapiens/TP53").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "ENSG00000141510",
+                "display_name": "TP53",
+                "seq_region_name": "17",
+                "start": 7661779,
+                "end": 7687550,
+                "strand": -1,
+                "biotype": "protein_coding",
+                "Transcript": [
+                    {"id": "ENST00000269305", "is_canonical": 1, "biotype": "protein_coding"}
+                ],
+            },
+        )
+    )
+    respx.get(url__regex=r"rest\.ensembl\.org/vep/human/hgvs").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {
+                    "most_severe_consequence": "missense_variant",
+                    "assembly_name": "GRCh38",
+                    "transcript_consequences": [
+                        {
+                            "transcript_id": "ENST00000269305",
+                            "canonical": 1,
+                            "impact": "MODERATE",
+                            "consequence_terms": ["missense_variant"],
+                            "amino_acids": "R/H",
+                        }
+                    ],
+                    "regulatory_feature_consequences": [],
+                }
+            ],
+        )
+    )
 
     client = VariantEffectsClient(
         gnomad=GnomADClient(http_client),
         myvariant=MyVariantClient(http_client),
         mavedb=MaveDBClient(http_client),
+        ensembl=EnsemblClient(http_client),
     )
     result = await client.get_effects("TP53", "R175H")
 
@@ -2794,6 +2979,8 @@ async def test_variant_effects_aggregator_happy_path(http_client):
     assert result.annotation.clinvar.significance_summary == "Pathogenic"
     assert result.annotation.in_silico.alphamissense_class == "likely_pathogenic"
     assert len(result.dms_scores) == 2  # two R175H rows in the mock CSV
+    assert result.vep_consequences is not None
+    assert result.vep_consequences.most_severe_consequence == "missense_variant"
     assert result.notes == []
     md = result.to_markdown()
     assert "R175H" in md
@@ -2820,10 +3007,12 @@ async def test_variant_effects_aggregator_not_in_gnomad_falls_back_to_myvariant(
     respx.post("https://api.mavedb.org/api/v1/score-sets/search").mock(
         return_value=httpx.Response(200, json={"scoreSets": []})
     )
+    respx.get(url__regex=r"rest\.ensembl\.org").mock(return_value=httpx.Response(404))
     client = VariantEffectsClient(
         gnomad=GnomADClient(http_client),
         myvariant=MyVariantClient(http_client),
         mavedb=MaveDBClient(http_client),
+        ensembl=EnsemblClient(http_client),
     )
     result = await client.get_effects("TP53", "R175H")
 
@@ -2850,10 +3039,12 @@ async def test_variant_effects_aggregator_not_in_gnomad_or_myvariant(http_client
     respx.post("https://api.mavedb.org/api/v1/score-sets/search").mock(
         return_value=httpx.Response(200, json={"scoreSets": []})
     )
+    respx.get(url__regex=r"rest\.ensembl\.org").mock(return_value=httpx.Response(404))
     client = VariantEffectsClient(
         gnomad=GnomADClient(http_client),
         myvariant=MyVariantClient(http_client),
         mavedb=MaveDBClient(http_client),
+        ensembl=EnsemblClient(http_client),
     )
     result = await client.get_effects("TP53", "R175H")
 
@@ -2870,6 +3061,7 @@ async def test_variant_effects_aggregator_invalid_mutation(http_client):
         gnomad=GnomADClient(http_client),
         myvariant=MyVariantClient(http_client),
         mavedb=MaveDBClient(http_client),
+        ensembl=EnsemblClient(http_client),
     )
     # parse_protein_change raises ValueError on garbage input
     with pytest.raises(ValueError):
