@@ -170,6 +170,20 @@ class Settings(BaseSettings):
     )
 
     # ---------------------------------------------------------------------------
+    # OpenFDA drug-safety cache
+    # ---------------------------------------------------------------------------
+
+    openfda_cache_path: Path = Field(
+        default=Path("data/openfda_cache.json"),
+        description="Disk cache path for OpenFDA per-drug safety signals.",
+    )
+    openfda_cache_ttl_secs: int = Field(
+        default=604800,
+        description="TTL in seconds for the OpenFDA disk cache (default 7 days).",
+        gt=0,
+    )
+
+    # ---------------------------------------------------------------------------
     # Workflow agent
     # ---------------------------------------------------------------------------
 

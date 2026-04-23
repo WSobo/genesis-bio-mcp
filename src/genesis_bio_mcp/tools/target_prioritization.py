@@ -11,6 +11,7 @@ from genesis_bio_mcp.models import (
     ChEMBLCompounds,
     Compounds,
     DrugHistory,
+    DrugInteraction,
     GeneResolution,
     GwasEvidence,
     PathwayContext,
@@ -31,6 +32,7 @@ if TYPE_CHECKING:
     from genesis_bio_mcp.clients.dgidb import DGIdbClient
     from genesis_bio_mcp.clients.gwas import GwasClient
     from genesis_bio_mcp.clients.open_targets import OpenTargetsClient
+    from genesis_bio_mcp.clients.openfda import OpenFDAClient
     from genesis_bio_mcp.clients.pubchem import PubChemClient
     from genesis_bio_mcp.clients.reactome import ReactomeClient
     from genesis_bio_mcp.clients.string_db import StringDbClient
@@ -99,6 +101,7 @@ async def prioritize_target(
     string_db: StringDbClient | None = None,
     dgidb: DGIdbClient | None = None,
     clinical_trials: ClinicalTrialsClient | None = None,
+    openfda: OpenFDAClient | None = None,
     reactome: ReactomeClient | None = None,
 ) -> TargetPrioritizationReport:
     """Run all database queries in parallel and synthesize a target prioritization report.
@@ -217,7 +220,7 @@ async def prioritize_target(
             if alphafold
             else _safe_none(),
             _safe(string_db.get_interactome(symbol)) if string_db else _safe_none(),
-            _safe(_fetch_drug_history(symbol, dgidb, clinical_trials))
+            _safe(_fetch_drug_history(symbol, dgidb, clinical_trials, openfda=openfda))
             if (dgidb or clinical_trials)
             else _safe_none(),
             _safe(reactome.get_pathway_context(symbol)) if reactome else _safe_none(),
@@ -297,8 +300,9 @@ async def _fetch_drug_history(
     gene_symbol: str,
     dgidb: Any,
     clinical_trials: Any,
+    openfda: Any = None,
 ) -> DrugHistory | None:
-    """Combine DGIdb + ClinicalTrials results into a DrugHistory object."""
+    """Combine DGIdb + ClinicalTrials + OpenFDA results into a DrugHistory object."""
     coros = []
     if dgidb is not None:
         coros.append(dgidb.get_drug_interactions(gene_symbol))
@@ -311,6 +315,7 @@ async def _fetch_drug_history(
 
     drugs, ct_result = await asyncio.gather(*coros)
     ct_trials, ct_counts = ct_result if isinstance(ct_result, tuple) else ([], {})
+    drugs = await attach_safety_signals(drugs, openfda=openfda)
     approved_count = sum(1 for d in drugs if d.approved)
     return DrugHistory(
         gene_symbol=gene_symbol,
@@ -319,6 +324,61 @@ async def _fetch_drug_history(
         trial_counts_by_phase=ct_counts,
         recent_trials=ct_trials[:10],
     )
+
+
+# Cap safety lookups at the top-N approved drugs so adding OpenFDA to
+# get_drug_history doesn't blow latency budget on targets with 30+ approved
+# drugs (e.g. TNF, EGFR). Five is enough to cover the commercially dominant
+# drugs in every class we've examined.
+_SAFETY_LOOKUP_CAP = 5
+
+
+async def attach_safety_signals(
+    drugs: list[DrugInteraction],
+    *,
+    openfda: OpenFDAClient | None,
+) -> list[DrugInteraction]:
+    """Populate ``.safety`` on the top-N approved drugs, in place on new copies.
+
+    Non-approved drugs are left untouched — FAERS data for investigational
+    compounds is sparse and often misleading (very few reports, skewed toward
+    early safety signals). Failures are swallowed; a drug whose OpenFDA
+    lookup errors simply carries ``safety=None``.
+    """
+    if openfda is None or not drugs:
+        return drugs
+
+    approved_sorted = sorted(
+        (d for d in drugs if d.approved),
+        key=lambda d: (-(d.phase or 4), d.drug_name.lower()),
+    )
+    targets = approved_sorted[:_SAFETY_LOOKUP_CAP]
+    if not targets:
+        return drugs
+
+    signals = await asyncio.gather(
+        *(openfda.get_safety_signals(d.drug_name) for d in targets),
+        return_exceptions=True,
+    )
+    safety_by_name: dict[str, Any] = {}
+    for drug, signal in zip(targets, signals, strict=True):
+        if isinstance(signal, Exception):
+            logger.warning("OpenFDA lookup raised for %s: %s", drug.drug_name, signal)
+            continue
+        if signal is not None:
+            safety_by_name[drug.drug_name.lower()] = signal
+
+    if not safety_by_name:
+        return drugs
+
+    out: list[DrugInteraction] = []
+    for d in drugs:
+        sig = safety_by_name.get(d.drug_name.lower())
+        if sig is None:
+            out.append(d)
+        else:
+            out.append(d.model_copy(update={"safety": sig}))
+    return out
 
 
 async def _return_empty_list() -> list:

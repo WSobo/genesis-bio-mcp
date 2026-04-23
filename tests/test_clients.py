@@ -19,6 +19,7 @@ from genesis_bio_mcp.clients.interpro import InterProClient
 from genesis_bio_mcp.clients.mavedb import MaveDBClient
 from genesis_bio_mcp.clients.myvariant import MyVariantClient
 from genesis_bio_mcp.clients.open_targets import OpenTargetsClient
+from genesis_bio_mcp.clients.openfda import OpenFDAClient
 from genesis_bio_mcp.clients.pubchem import PubChemClient
 from genesis_bio_mcp.clients.reactome import ReactomeClient
 from genesis_bio_mcp.clients.sabdab import SAbDabClient
@@ -3436,3 +3437,169 @@ async def test_hpa_network_error_returns_none(http_client, tmp_path, monkeypatch
     client = HPAClient(http_client)
     report = await client.get_report("BRAF")
     assert report is None
+
+
+# ---------------------------------------------------------------------------
+# OpenFDA client tests
+# ---------------------------------------------------------------------------
+
+# A FAERS /drug/event.json response carrying BOTH the count-by-field rows and
+# the meta.results.total used by the "get total reports" query. The client
+# issues both requests in parallel against the same endpoint, so a single
+# mock response with both keys populated satisfies them.
+_MOCK_OPENFDA_FAERS_IMATINIB = {
+    "meta": {"results": {"total": 12345}},
+    "results": [
+        {"term": "NAUSEA", "count": 920},
+        {"term": "FATIGUE", "count": 812},
+        {"term": "RASH", "count": 540},
+        # term/count pairs with bad types must be filtered out silently
+        {"term": "", "count": 100},
+        {"term": "MISSING_COUNT"},
+    ],
+}
+
+_MOCK_OPENFDA_LABEL_IMATINIB = {
+    "results": [
+        {
+            "boxed_warning": [
+                "WARNING: Severe hepatotoxicity has been reported.",
+                "",
+            ],
+            # other label fields ignored
+            "indications_and_usage": ["Unused text"],
+        }
+    ]
+}
+
+_MOCK_OPENFDA_RECALL_IMATINIB = {
+    "results": [
+        {
+            "recall_number": "D-0123-2023",
+            "classification": "Class II",
+            "reason_for_recall": "Container closure defect observed at manufacturing site.",
+            "status": "Ongoing",
+        },
+        # Missing reason → must be skipped
+        {
+            "recall_number": "D-0456-2023",
+            "classification": "Class III",
+            "reason_for_recall": "",
+            "status": "Terminated",
+        },
+    ]
+}
+
+
+@respx.mock
+async def test_openfda_happy_path(http_client, tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "genesis_bio_mcp.config.settings.settings.openfda_cache_path",
+        tmp_path / "openfda.json",
+    )
+    monkeypatch.delenv("OPENFDA_API_KEY", raising=False)
+    respx.get(url__regex=r"api\.fda\.gov/drug/event\.json").mock(
+        return_value=httpx.Response(200, json=_MOCK_OPENFDA_FAERS_IMATINIB)
+    )
+    respx.get(url__regex=r"api\.fda\.gov/drug/label\.json").mock(
+        return_value=httpx.Response(200, json=_MOCK_OPENFDA_LABEL_IMATINIB)
+    )
+    respx.get(url__regex=r"api\.fda\.gov/drug/enforcement\.json").mock(
+        return_value=httpx.Response(200, json=_MOCK_OPENFDA_RECALL_IMATINIB)
+    )
+    client = OpenFDAClient(http_client)
+    signal = await client.get_safety_signals("imatinib")
+
+    assert signal is not None
+    assert signal.drug_name == "imatinib"
+    assert signal.total_reports == 12345
+    # Only rows with non-empty term and integer count > 0 survive
+    terms = [ae.term for ae in signal.top_adverse_events]
+    assert terms == ["NAUSEA", "FATIGUE", "RASH"]
+    assert signal.top_adverse_events[0].count == 920
+    # Empty string in boxed_warning must be stripped, leaving one warning
+    assert signal.boxed_warnings == ["WARNING: Severe hepatotoxicity has been reported."]
+    # Missing reason_for_recall means that recall is dropped
+    assert len(signal.recalls) == 1
+    assert signal.recalls[0].recall_number == "D-0123-2023"
+    assert signal.recalls[0].classification == "Class II"
+
+    md = signal.to_markdown()
+    assert "Boxed warnings" in md
+    assert "NAUSEA" in md
+    assert "D-0123-2023" in md
+    assert "FAERS" in md  # disclaimer
+
+    # Session cache should now be populated; a second call must not hit HTTP.
+    respx.get(url__regex=r"api\.fda\.gov").mock(side_effect=AssertionError("should be cached"))
+    cached = await client.get_safety_signals("Imatinib")  # case-insensitive key
+    assert cached is signal
+
+
+@respx.mock
+async def test_openfda_no_matches_returns_empty_signal(http_client, tmp_path, monkeypatch):
+    """OpenFDA 404 = zero matches; the client returns a populated-but-empty signal."""
+    monkeypatch.setattr(
+        "genesis_bio_mcp.config.settings.settings.openfda_cache_path",
+        tmp_path / "openfda.json",
+    )
+    monkeypatch.delenv("OPENFDA_API_KEY", raising=False)
+    respx.get(url__regex=r"api\.fda\.gov/drug/event\.json").mock(
+        return_value=httpx.Response(404, json={"error": {"code": "NOT_FOUND"}})
+    )
+    respx.get(url__regex=r"api\.fda\.gov/drug/label\.json").mock(
+        return_value=httpx.Response(404, json={"error": {"code": "NOT_FOUND"}})
+    )
+    respx.get(url__regex=r"api\.fda\.gov/drug/enforcement\.json").mock(
+        return_value=httpx.Response(404, json={"error": {"code": "NOT_FOUND"}})
+    )
+    client = OpenFDAClient(http_client)
+    signal = await client.get_safety_signals("not-a-real-drug")
+
+    assert signal is not None  # clean negative, not a failure
+    assert signal.total_reports == 0
+    assert signal.top_adverse_events == []
+    assert signal.boxed_warnings == []
+    assert signal.recalls == []
+    assert "FAERS" in signal.to_markdown()
+
+    # Empty signals must not be persisted to disk (so later reports are picked up).
+    assert not (tmp_path / "openfda.json").exists()
+
+
+@respx.mock
+async def test_openfda_network_error_returns_none(http_client, tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "genesis_bio_mcp.config.settings.settings.openfda_cache_path",
+        tmp_path / "openfda.json",
+    )
+    monkeypatch.delenv("OPENFDA_API_KEY", raising=False)
+    respx.get(url__regex=r"api\.fda\.gov").mock(side_effect=httpx.ConnectError("boom"))
+    client = OpenFDAClient(http_client)
+    signal = await client.get_safety_signals("imatinib")
+    assert signal is None
+
+
+@respx.mock
+async def test_openfda_api_key_injected_when_set(http_client, tmp_path, monkeypatch):
+    """If OPENFDA_API_KEY is set, it must be appended as a query parameter."""
+    monkeypatch.setattr(
+        "genesis_bio_mcp.config.settings.settings.openfda_cache_path",
+        tmp_path / "openfda.json",
+    )
+    monkeypatch.setenv("OPENFDA_API_KEY", "test-key-xyz")
+    seen_keys: list[str | None] = []
+
+    def _spy(request):
+        seen_keys.append(request.url.params.get("api_key"))
+        return httpx.Response(200, json={"results": [], "meta": {"results": {"total": 0}}})
+
+    respx.get(url__regex=r"api\.fda\.gov").mock(side_effect=_spy)
+    client = OpenFDAClient(http_client)
+    signal = await client.get_safety_signals("imatinib")
+
+    assert signal is not None
+    # All 4 sub-requests (event count, event total, label, enforcement) must
+    # carry the key.
+    assert len(seen_keys) == 4
+    assert all(k == "test-key-xyz" for k in seen_keys)

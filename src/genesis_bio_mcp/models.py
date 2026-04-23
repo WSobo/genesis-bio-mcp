@@ -1386,6 +1386,77 @@ class ProteinAtlasReport(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class AdverseEventCount(BaseModel):
+    """A single MedDRA preferred term and its FAERS report count."""
+
+    term: str = Field(description="MedDRA preferred term, e.g. 'NAUSEA'")
+    count: int = Field(description="Number of FAERS reports mentioning this term")
+
+
+class DrugRecall(BaseModel):
+    """An FDA enforcement action (recall) for a drug product."""
+
+    recall_number: str = Field(description="FDA enforcement report ID, e.g. 'D-0123-2023'")
+    classification: str | None = Field(
+        None, description="Class I (most serious), II, or III (least serious)"
+    )
+    reason: str = Field(description="Reason-for-recall summary")
+    status: str | None = Field(None, description="Status, e.g. 'Ongoing' or 'Terminated'")
+
+
+class DrugSafetySignal(BaseModel):
+    """Post-market safety context for a single drug, aggregated from OpenFDA.
+
+    Combines FAERS spontaneous-report adverse events, structured drug-label
+    boxed warnings, and FDA enforcement actions. Counts are raw and unadjusted;
+    FAERS reports are voluntary and do not imply causation.
+    """
+
+    drug_name: str = Field(description="Drug name as queried (generic or brand)")
+    total_reports: int = Field(default=0, description="Total matched FAERS reports")
+    top_adverse_events: list[AdverseEventCount] = Field(
+        default_factory=list,
+        description="Most-reported MedDRA reactions, highest first (up to 10)",
+    )
+    boxed_warnings: list[str] = Field(
+        default_factory=list, description="Verbatim FDA label boxed warnings"
+    )
+    recalls: list[DrugRecall] = Field(
+        default_factory=list, description="FDA enforcement actions for this product"
+    )
+    disclaimer: str = Field(
+        default=(
+            "FAERS reports are voluntary and unverified; counts do not establish "
+            "causation. Consult the FDA label for clinical guidance."
+        ),
+        description="Regulatory caveat to surface alongside counts",
+    )
+
+    def to_markdown(self) -> str:
+        lines: list[str] = [f"### Safety: {self.drug_name}"]
+        if self.boxed_warnings:
+            lines.append("**Boxed warnings:**")
+            for bw in self.boxed_warnings[:3]:
+                snippet = bw.replace("\n", " ").strip()
+                if len(snippet) > 200:
+                    snippet = snippet[:200] + "…"
+                lines.append(f"- {snippet}")
+        if self.top_adverse_events:
+            lines.append(f"**Top adverse events** ({self.total_reports:,} FAERS reports):")
+            for ae in self.top_adverse_events[:5]:
+                lines.append(f"- {ae.term}: {ae.count:,}")
+        if self.recalls:
+            lines.append(f"**Recalls** ({len(self.recalls)} total):")
+            for r in self.recalls[:3]:
+                cls = f" (Class {r.classification})" if r.classification else ""
+                reason = r.reason if len(r.reason) < 120 else r.reason[:120] + "…"
+                lines.append(f"- {r.recall_number}{cls}: {reason}")
+        if not (self.boxed_warnings or self.top_adverse_events or self.recalls):
+            lines.append("_No boxed warnings, adverse-event reports, or recalls found._")
+        lines.append(f"_{self.disclaimer}_")
+        return "\n".join(lines)
+
+
 class DrugInteraction(BaseModel):
     """A known drug-gene interaction from DGIdb."""
 
@@ -1398,6 +1469,11 @@ class DrugInteraction(BaseModel):
     )
     approved: bool = Field(default=False, description="True if FDA/EMA approved (Phase 4)")
     sources: list[str] = Field(default_factory=list, description="DGIdb data source databases")
+    safety: DrugSafetySignal | None = Field(
+        None,
+        description="OpenFDA post-market safety signal; populated only for approved drugs "
+        "surfaced by get_drug_history",
+    )
 
 
 class ClinicalTrial(BaseModel):
@@ -1494,6 +1570,17 @@ class DrugHistory(BaseModel):
                 lines.append(
                     f"| [{t.nct_id}](https://clinicaltrials.gov/study/{t.nct_id}) | {phase} | {t.status} | {ind} |"
                 )
+
+        safety_drugs = [
+            d
+            for d in self.known_drugs
+            if d.safety
+            and (d.safety.boxed_warnings or d.safety.top_adverse_events or d.safety.recalls)
+        ]
+        if safety_drugs:
+            lines += ["", "## Safety Signals (OpenFDA)"]
+            for d in safety_drugs[:5]:
+                lines += ["", d.safety.to_markdown()]
 
         return "\n".join(lines)
 

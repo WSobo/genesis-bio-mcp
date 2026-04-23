@@ -22,7 +22,7 @@ Exposes 27 tools for biomedical database queries:
   - get_protein_atlas             HPA: tissue specificity, subcellular, pathology
   - get_domain_annotation         InterPro: domain boundaries, Pfam/SMART, GO terms
   - get_dms_scores                MaveDB: deep mutational scanning score sets
-  - get_drug_history              DGIdb + ClinicalTrials.gov: known drugs and trials
+  - get_drug_history              DGIdb + ClinicalTrials.gov + OpenFDA: drugs, trials, safety
   - get_pathway_context           Reactome: pathway membership and enrichment for a gene
   - get_pathway_members           Reactome: enumerate all genes in a named pathway
   - prioritize_target             Orchestration: full target assessment report
@@ -65,6 +65,7 @@ from genesis_bio_mcp.clients.interpro import InterProClient
 from genesis_bio_mcp.clients.mavedb import MaveDBClient
 from genesis_bio_mcp.clients.myvariant import MyVariantClient
 from genesis_bio_mcp.clients.open_targets import OpenTargetsClient
+from genesis_bio_mcp.clients.openfda import OpenFDAClient
 from genesis_bio_mcp.clients.pubchem import PubChemClient
 from genesis_bio_mcp.clients.reactome import ReactomeClient
 from genesis_bio_mcp.clients.sabdab import SAbDabClient
@@ -82,6 +83,9 @@ from genesis_bio_mcp.models import (
 )
 from genesis_bio_mcp.tools.biochem import compute_features, scan_liabilities
 from genesis_bio_mcp.tools.gene_resolver import resolve_gene as _resolve_gene
+from genesis_bio_mcp.tools.target_prioritization import (
+    attach_safety_signals as _attach_safety_signals,
+)
 from genesis_bio_mcp.tools.target_prioritization import (
     prioritize_target as _prioritize_target,
 )
@@ -144,6 +148,7 @@ async def lifespan(server: FastMCP):
         )
         server.state.dgidb = DGIdbClient(client)
         server.state.clinical_trials = ClinicalTrialsClient(client)
+        server.state.openfda = OpenFDAClient(client)
         server.state.reactome = ReactomeClient(client)
         yield
 
@@ -1339,19 +1344,23 @@ async def get_dms_scores(params: GetDMSScoresInput) -> str:
     )
 )
 async def get_drug_history(params: GetDrugHistoryInput) -> str:
-    """Retrieve the drug development history for a gene target.
+    """Retrieve the drug development history and post-market safety profile.
 
     Use this tool to understand the clinical precedent for targeting a gene:
     what drugs already exist (approved or investigational), what indications have
-    been pursued, and how many clinical trials have targeted this gene. Essential
-    for first-in-class vs. best-in-class strategy decisions.
+    been pursued, how many clinical trials have targeted this gene, and — for
+    approved drugs — the FAERS adverse-event profile, FDA boxed warnings, and
+    recent recalls. Essential for first-in-class vs. best-in-class strategy and
+    for anticipating class-level safety liabilities.
 
     Args:
         params (GetDrugHistoryInput): gene_symbol, response_format.
 
     Returns:
         Markdown with known drugs (type, phase, approval status), trial counts by
-        phase, and a table of recent clinical trials from ClinicalTrials.gov.
+        phase, a table of recent clinical trials from ClinicalTrials.gov, and a
+        safety-signals section listing boxed warnings and top adverse events for
+        the highest-phase approved drugs (up to 5).
     """
     symbol, _ = await _resolve_symbol(params.gene_symbol)
     drugs, ct_result = await asyncio.gather(
@@ -1359,6 +1368,7 @@ async def get_drug_history(params: GetDrugHistoryInput) -> str:
         mcp.state.clinical_trials.get_trials(symbol),
     )
     ct_trials, ct_counts = ct_result
+    drugs = await _attach_safety_signals(drugs, openfda=mcp.state.openfda)
     result = DrugHistory(
         gene_symbol=symbol,
         known_drugs=drugs,
@@ -1483,6 +1493,7 @@ async def prioritize_target(params: PrioritizeTargetInput) -> str:
         string_db=mcp.state.string_db if params.extended else None,
         dgidb=mcp.state.dgidb if params.extended else None,
         clinical_trials=mcp.state.clinical_trials if params.extended else None,
+        openfda=mcp.state.openfda if params.extended else None,
         reactome=mcp.state.reactome if params.extended else None,
     )
     return _fmt(result, params.response_format, "")

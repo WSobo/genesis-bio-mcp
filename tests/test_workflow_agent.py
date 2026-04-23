@@ -49,6 +49,7 @@ def _mock_state() -> MagicMock:
         "ensembl",
         "gtex",
         "hpa",
+        "openfda",
     ):
         client = MagicMock()
         for method in (
@@ -74,6 +75,7 @@ def _mock_state() -> MagicMock:
             "get_vep_consequences",
             "get_expression",
             "get_report",
+            "get_safety_signals",
         ):
             mock_result = MagicMock()
             mock_result.to_markdown.return_value = f"## Mock {attr}.{method}\n\nData here."

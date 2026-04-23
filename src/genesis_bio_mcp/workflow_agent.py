@@ -20,7 +20,12 @@ import anthropic
 from genesis_bio_mcp.config.settings import settings
 from genesis_bio_mcp.models import ComparisonReport, DrugHistory, TargetComparisonRow
 from genesis_bio_mcp.tools.gene_resolver import resolve_gene as _resolve_gene
-from genesis_bio_mcp.tools.target_prioritization import prioritize_target as _prioritize_target
+from genesis_bio_mcp.tools.target_prioritization import (
+    attach_safety_signals,
+)
+from genesis_bio_mcp.tools.target_prioritization import (
+    prioritize_target as _prioritize_target,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -309,6 +314,7 @@ def build_tool_registry(state: Any) -> dict[str, ToolSpec]:
             state.clinical_trials.get_trials(gene_symbol),
         )
         ct_trials, ct_counts = ct_result
+        drugs = await attach_safety_signals(drugs, openfda=state.openfda)
         result = DrugHistory(
             gene_symbol=gene_symbol,
             known_drugs=drugs,
@@ -357,6 +363,7 @@ def build_tool_registry(state: Any) -> dict[str, ToolSpec]:
             string_db=state.string_db if extended else None,
             dgidb=state.dgidb if extended else None,
             clinical_trials=state.clinical_trials if extended else None,
+            openfda=state.openfda if extended else None,
             reactome=state.reactome if extended else None,
         )
         return result.to_markdown()
