@@ -120,6 +120,14 @@ class ChEMBLClient:
                     continue
                 seen.add(mol_id)
 
+                # Confidence score is a string in some ChEMBL rows and an int
+                # in others; coerce defensively, drop on failure.
+                conf_raw = a.get("confidence_score")
+                try:
+                    conf_score = int(conf_raw) if conf_raw is not None else None
+                except (ValueError, TypeError):
+                    conf_score = None
+
                 activities.append(
                     ChEMBLActivity(
                         molecule_chembl_id=mol_id,
@@ -129,6 +137,11 @@ class ChEMBLClient:
                         assay_description=a.get("assay_description", "")[:120]
                         if a.get("assay_description")
                         else None,
+                        assay_type=a.get("assay_type") or None,
+                        assay_organism=a.get("assay_organism") or None,
+                        assay_cell_type=a.get("assay_cell_type") or None,
+                        bao_format=a.get("bao_label") or a.get("bao_format") or None,
+                        confidence_score=conf_score,
                     )
                 )
 

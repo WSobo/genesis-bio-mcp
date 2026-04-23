@@ -6,6 +6,7 @@ import respx
 
 from genesis_bio_mcp.clients.alphafold import AlphaFoldClient
 from genesis_bio_mcp.clients.biogrid import BioGRIDClient
+from genesis_bio_mcp.clients.chembl import ChEMBLClient
 from genesis_bio_mcp.clients.clinical_trials import ClinicalTrialsClient
 from genesis_bio_mcp.clients.depmap import DepMapClient
 from genesis_bio_mcp.clients.dgidb import DGIdbClient
@@ -3603,3 +3604,203 @@ async def test_openfda_api_key_injected_when_set(http_client, tmp_path, monkeypa
     # carry the key.
     assert len(seen_keys) == 4
     assert all(k == "test-key-xyz" for k in seen_keys)
+
+
+# ---------------------------------------------------------------------------
+# ChEMBL client tests
+# ---------------------------------------------------------------------------
+
+_MOCK_CHEMBL_TARGET_SEARCH = {
+    "targets": [
+        # First hit is wrong organism — client must skip to the human row.
+        {
+            "target_chembl_id": "CHEMBL9999",
+            "target_type": "SINGLE PROTEIN",
+            "organism": "Rattus norvegicus",
+        },
+        {
+            "target_chembl_id": "CHEMBL5145",
+            "target_type": "SINGLE PROTEIN",
+            "organism": "Homo sapiens",
+        },
+    ]
+}
+
+_MOCK_CHEMBL_ACTIVITIES = {
+    "activities": [
+        # Biochemical binding assay, human, high confidence — the reference row.
+        {
+            "molecule_chembl_id": "CHEMBL1336",
+            "molecule_pref_name": "VEMURAFENIB",
+            "standard_type": "IC50",
+            "pchembl_value": "8.5",
+            "assay_description": "In vitro kinase inhibition against human BRAF V600E",
+            "assay_type": "B",
+            "assay_organism": "Homo sapiens",
+            "assay_cell_type": None,
+            "bao_label": "single protein format",
+            "confidence_score": 9,
+        },
+        # Functional cell-based assay in HEK293 — should render with cell type.
+        {
+            "molecule_chembl_id": "CHEMBL2028663",
+            "molecule_pref_name": "DABRAFENIB",
+            "standard_type": "IC50",
+            "pchembl_value": "9.2",
+            "assay_description": "Inhibition of ERK phosphorylation in A375 cells",
+            "assay_type": "F",
+            "assay_organism": "Homo sapiens",
+            "assay_cell_type": "A375",
+            "bao_label": "cell-based format",
+            "confidence_score": 8,  # < 9 — should drive the low-confidence flag
+        },
+        # Rat assay — should surface under "Non-human assays present".
+        {
+            "molecule_chembl_id": "CHEMBL1337",
+            "molecule_pref_name": "ROCK_FOR_RAT",
+            "standard_type": "Ki",
+            "pchembl_value": 7.0,
+            "assay_description": "Rat liver microsome assay",
+            "assay_type": "B",
+            "assay_organism": "Rattus norvegicus",
+            "assay_cell_type": None,
+            "bao_label": "single protein format",
+            "confidence_score": 9,
+        },
+        # Duplicate molecule — must be deduped (only the first occurrence kept).
+        {
+            "molecule_chembl_id": "CHEMBL1336",
+            "molecule_pref_name": "VEMURAFENIB",
+            "standard_type": "Ki",
+            "pchembl_value": "7.0",
+            "assay_description": "dup row",
+            "assay_type": "B",
+            "assay_organism": "Homo sapiens",
+            "confidence_score": 9,
+        },
+        # Missing pchembl — must be skipped.
+        {
+            "molecule_chembl_id": "CHEMBL99999",
+            "molecule_pref_name": "NO_PCHEMBL",
+            "standard_type": "IC50",
+            "pchembl_value": None,
+            "assay_type": "B",
+        },
+        # Unparseable confidence score — coerced to None, row still kept.
+        {
+            "molecule_chembl_id": "CHEMBL7777",
+            "molecule_pref_name": "WEIRD_CONF",
+            "standard_type": "IC50",
+            "pchembl_value": "6.1",
+            "assay_description": "Assay with non-int confidence in source data",
+            "assay_type": "B",
+            "assay_organism": "Homo sapiens",
+            "confidence_score": "not-a-number",
+        },
+    ]
+}
+
+
+@respx.mock
+async def test_chembl_happy_path_with_assay_context(http_client):
+    respx.get(url__regex=r"ebi\.ac\.uk/chembl/api/data/target/search").mock(
+        return_value=httpx.Response(200, json=_MOCK_CHEMBL_TARGET_SEARCH)
+    )
+    respx.get(url__regex=r"ebi\.ac\.uk/chembl/api/data/activity").mock(
+        return_value=httpx.Response(200, json=_MOCK_CHEMBL_ACTIVITIES)
+    )
+    client = ChEMBLClient(http_client)
+    result = await client.get_compounds("BRAF")
+
+    assert result is not None
+    assert result.gene_symbol == "BRAF"
+    assert result.target_chembl_id == "CHEMBL5145"  # human, not rat
+    # 4 survive (one dup, one missing pchembl dropped); total_active_compounds
+    # is the *surviving* count after dedup/filter — matches best_pchembl source.
+    assert result.total_active_compounds == 4
+    assert result.best_pchembl == 9.2  # dabrafenib wins
+
+    # New assay-context fields must be populated on each activity.
+    by_id = {c.molecule_chembl_id: c for c in result.compounds}
+    v = by_id["CHEMBL1336"]
+    assert v.assay_type == "B"
+    assert v.assay_organism == "Homo sapiens"
+    assert v.assay_cell_type is None
+    assert v.bao_format == "single protein format"
+    assert v.confidence_score == 9
+
+    d = by_id["CHEMBL2028663"]
+    assert d.assay_type == "F"
+    assert d.assay_cell_type == "A375"
+    assert d.bao_format == "cell-based format"
+    assert d.confidence_score == 8
+
+    rat = by_id["CHEMBL1337"]
+    assert rat.assay_organism == "Rattus norvegicus"
+
+    weird = by_id["CHEMBL7777"]
+    assert weird.confidence_score is None  # unparseable confidence coerced
+
+    md = result.to_markdown()
+    # Assay mix summary appears and distinguishes B vs F
+    assert "Assay mix" in md
+    assert "binding" in md
+    assert "functional" in md
+    # Non-human flag surfaces rat assays
+    assert "Non-human assays present" in md
+    assert "Rattus norvegicus" in md
+    # Low-confidence flag fires because CHEMBL2028663 has score 8
+    assert "Low target-assignment confidence" in md
+    # Table carries assay-type + organism columns
+    assert "| Assay |" in md
+    assert "A375" in md  # cell type surfaces in the label
+
+
+@respx.mock
+async def test_chembl_no_human_target_returns_none(http_client):
+    """If only non-human hits are returned, the client should return None."""
+    respx.get(url__regex=r"ebi\.ac\.uk/chembl/api/data/target/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "targets": [
+                    {
+                        "target_chembl_id": "CHEMBL9999",
+                        "target_type": "SINGLE PROTEIN",
+                        "organism": "Rattus norvegicus",
+                    }
+                ]
+            },
+        )
+    )
+    client = ChEMBLClient(http_client)
+    result = await client.get_compounds("BRAF")
+    assert result is None
+
+
+@respx.mock
+async def test_chembl_empty_activities_returns_zero_count(http_client):
+    """A human target with no pChEMBL rows returns a zero-count ChEMBLCompounds."""
+    respx.get(url__regex=r"ebi\.ac\.uk/chembl/api/data/target/search").mock(
+        return_value=httpx.Response(200, json=_MOCK_CHEMBL_TARGET_SEARCH)
+    )
+    respx.get(url__regex=r"ebi\.ac\.uk/chembl/api/data/activity").mock(
+        return_value=httpx.Response(200, json={"activities": []})
+    )
+    client = ChEMBLClient(http_client)
+    result = await client.get_compounds("BRAF")
+
+    assert result is not None
+    assert result.total_active_compounds == 0
+    assert result.best_pchembl is None
+    assert result.compounds == []
+
+
+@respx.mock
+async def test_chembl_network_error_returns_none(http_client):
+    respx.get(url__regex=r"ebi\.ac\.uk/chembl/api/data/target/search").mock(
+        side_effect=httpx.ConnectError("boom")
+    )
+    client = ChEMBLClient(http_client)
+    result = await client.get_compounds("BRAF")
+    assert result is None

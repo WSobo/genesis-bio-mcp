@@ -977,7 +977,12 @@ class Compounds(BaseModel):
 
 
 class ChEMBLActivity(BaseModel):
-    """A quantitative bioactivity measurement from ChEMBL."""
+    """A quantitative bioactivity measurement from ChEMBL.
+
+    Carries full assay context so callers can distinguish biochemical binding
+    from cell-based functional potency: identical pChEMBL values mean different
+    things depending on the assay format and the target confidence score.
+    """
 
     molecule_chembl_id: str = Field(description="ChEMBL molecule ID, e.g. 'CHEMBL1'")
     molecule_name: str | None = Field(None, description="Common/trade name if available")
@@ -986,6 +991,38 @@ class ChEMBLActivity(BaseModel):
         description="-log10(IC50 in M); 7 = 100 nM lead quality, 9 = 1 nM clinical-grade"
     )
     assay_description: str | None = Field(None, description="Brief assay description from ChEMBL")
+    assay_type: str | None = Field(
+        None,
+        description=(
+            "ChEMBL assay-type code: B=binding (biochemical), F=functional "
+            "(typically cell-based), A=ADME, T=toxicity, P=physicochemical"
+        ),
+    )
+    assay_organism: str | None = Field(
+        None,
+        description=(
+            "Organism of the assay material (e.g. 'Homo sapiens'). Non-human "
+            "potency is a selectivity signal, not a substitute for human data."
+        ),
+    )
+    assay_cell_type: str | None = Field(
+        None,
+        description="Cell line used for functional assays (e.g. 'HEK293'); None for biochemical",
+    )
+    bao_format: str | None = Field(
+        None,
+        description=(
+            "BAO ontology term describing the assay format, e.g. "
+            "'single protein format', 'cell-based format', 'tissue-based format'"
+        ),
+    )
+    confidence_score: int | None = Field(
+        None,
+        description=(
+            "ChEMBL target-assignment confidence, 0–9. 9 = direct single-protein "
+            "target; lower values indicate ambiguous or indirect target assignment."
+        ),
+    )
 
 
 class ChEMBLCompounds(BaseModel):
@@ -1022,18 +1059,117 @@ class ChEMBLCompounds(BaseModel):
         ]
         if self.target_chembl_id:
             lines.append(f"Target: `{self.target_chembl_id}`")
+
+        # Assay-mix summary — distinguishes biochemical from cell-based data at
+        # a glance. Counts over the full returned compound list (not the top 10
+        # we render in the table).
+        mix = _summarize_assay_mix(self.compounds)
+        if mix:
+            lines.append(f"**Assay mix:** {mix}")
+
+        # Flag low target-assignment confidence (ChEMBL confidence_score < 9)
+        # or any non-human assay data — both are credibility caveats the agent
+        # should be aware of when citing potency numbers.
+        non_human = sorted(
+            {
+                c.assay_organism
+                for c in self.compounds
+                if c.assay_organism and c.assay_organism != "Homo sapiens"
+            }
+        )
+        if non_human:
+            lines.append(f"**Non-human assays present:** {', '.join(non_human)}")
+
+        low_conf = [
+            c for c in self.compounds if c.confidence_score is not None and c.confidence_score < 9
+        ]
+        if low_conf:
+            lines.append(
+                f"**Low target-assignment confidence:** {len(low_conf)}/{len(self.compounds)} "
+                "rows have ChEMBL confidence_score < 9 (indirect or ambiguous target assignment)"
+            )
+
         if self.compounds:
             lines += [
                 "",
-                "| Compound | Type | pChEMBL | IC50 equiv |",
-                "|---|---|---|---|",
+                "| Compound | Assay | Type | Organism | pChEMBL | IC50 equiv |",
+                "|---|---|---|---|---|---|",
             ]
             for c in self.compounds[:10]:
                 name = (c.molecule_name or c.molecule_chembl_id)[:35]
                 ic50_nm = 10 ** (9 - c.pchembl_value)
                 ic50_str = f"{ic50_nm:.1f} nM" if ic50_nm < 1000 else f"{ic50_nm / 1000:.2f} µM"
-                lines.append(f"| {name} | {c.standard_type} | {c.pchembl_value:.1f} | {ic50_str} |")
+                assay_label = _assay_type_label(c.assay_type, c.assay_cell_type)
+                org = _organism_short(c.assay_organism)
+                lines.append(
+                    f"| {name} | {assay_label} | {c.standard_type} | {org} | "
+                    f"{c.pchembl_value:.1f} | {ic50_str} |"
+                )
         return "\n".join(lines)
+
+
+_ASSAY_TYPE_NAMES = {
+    "B": "binding",
+    "F": "functional",
+    "A": "ADME",
+    "T": "toxicity",
+    "P": "physchem",
+}
+
+_ORGANISM_SHORT = {
+    "Homo sapiens": "human",
+    "Rattus norvegicus": "rat",
+    "Mus musculus": "mouse",
+    "Oryctolagus cuniculus": "rabbit",
+    "Macaca mulatta": "macaque",
+    "Canis lupus familiaris": "dog",
+}
+
+
+def _assay_type_label(assay_type: str | None, cell_type: str | None) -> str:
+    """Render the assay type as ``B`` or ``F (HEK293)``; ``?`` when missing."""
+    if not assay_type:
+        return "?"
+    if assay_type == "F" and cell_type:
+        return f"F ({cell_type[:10]})"
+    return assay_type
+
+
+def _organism_short(organism: str | None) -> str:
+    """Abbreviate organism name for table rendering."""
+    if not organism:
+        return "—"
+    return _ORGANISM_SHORT.get(organism, organism.split()[0].lower()[:10])
+
+
+def _summarize_assay_mix(activities: list[ChEMBLActivity]) -> str:
+    """Summarize assay-type counts across a list of activities.
+
+    Emits e.g. ``"12 binding, 5 functional (3 cell-based), 1 ?"``. Cell-based
+    is tracked separately because it's the most important subcategory for
+    biological relevance: a functional assay in a cell line reporting pathway
+    inhibition is different from one in a cell-free reconstitution.
+    """
+    if not activities:
+        return ""
+    from collections import Counter
+
+    by_type: Counter[str] = Counter()
+    cell_based = 0
+    for a in activities:
+        by_type[a.assay_type or "?"] += 1
+        if a.bao_format and "cell-based" in a.bao_format.lower():
+            cell_based += 1
+    parts: list[str] = []
+    for code in ("B", "F", "A", "T", "P", "?"):
+        n = by_type.get(code, 0)
+        if not n:
+            continue
+        name = _ASSAY_TYPE_NAMES.get(code, code)
+        parts.append(f"{n} {name}")
+    if cell_based:
+        parts.append(f"{cell_based} cell-based")
+    return ", ".join(parts)
 
 
 # ---------------------------------------------------------------------------
