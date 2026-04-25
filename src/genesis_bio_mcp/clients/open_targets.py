@@ -303,64 +303,93 @@ def _name_match_score(query: str, hit_name: str) -> float:
 # Curated to oncology + cardiometabolic + neuroscience + immunology, the
 # four areas that produced silent-data-loss bugs in the v0.3.0–v0.3.3 smoke
 # tests. Add new entries when you find another acronym OT's search misses.
-_ACRONYM_EXPANSIONS: dict[str, str] = {
+# Common indication acronyms → canonical full form(s). Values are tuples so a
+# single acronym can map to MULTIPLE candidate expansions, tried in order.
+# This matters when OT's index lags behind modern naming: ``MASH`` resolves
+# to ``"metabolic dysfunction-associated steatohepatitis"`` (no OT hit) but
+# the legacy ``"non-alcoholic steatohepatitis"`` still has an OT entry
+# (EFO_1001249). Listing the legacy alias second lets the resolver fall
+# through to whatever OT actually indexes.
+#
+# Curated to oncology + cardiometabolic + neuroscience + immunology, the
+# four areas that produced silent-data-loss bugs in the v0.3.0–v0.3.4 smoke
+# tests. Add new entries when you find another acronym OT's search misses.
+_ACRONYM_EXPANSIONS: dict[str, tuple[str, ...]] = {
     # Oncology — solid tumors
-    "NSCLC": "non-small cell lung carcinoma",
-    "SCLC": "small cell lung carcinoma",
-    "PDAC": "pancreatic ductal adenocarcinoma",
-    "TNBC": "triple-negative breast cancer",
-    "HCC": "hepatocellular carcinoma",
-    "RCC": "renal cell carcinoma",
-    "CRC": "colorectal carcinoma",
-    "GBM": "glioblastoma multiforme",
+    "NSCLC": ("non-small cell lung carcinoma",),
+    "SCLC": ("small cell lung carcinoma",),
+    "PDAC": ("pancreatic ductal adenocarcinoma", "pancreatic adenocarcinoma"),
+    "TNBC": ("triple-negative breast cancer",),
+    "HCC": ("hepatocellular carcinoma",),
+    "RCC": ("renal cell carcinoma",),
+    "CRC": ("colorectal carcinoma", "colorectal cancer"),
+    "GBM": ("glioblastoma multiforme", "glioblastoma"),
     # Oncology — hematologic
-    "AML": "acute myeloid leukemia",
-    "ALL": "acute lymphoblastic leukemia",
-    "CML": "chronic myeloid leukemia",
-    "CLL": "chronic lymphocytic leukemia",
-    "MM": "multiple myeloma",
-    "DLBCL": "diffuse large B-cell lymphoma",
+    "AML": ("acute myeloid leukemia",),
+    "ALL": ("acute lymphoblastic leukemia",),
+    "CML": ("chronic myeloid leukemia",),
+    "CLL": ("chronic lymphocytic leukemia",),
+    "MM": ("multiple myeloma",),
+    "DLBCL": ("diffuse large B-cell lymphoma",),
     # Endocrine / metabolic
-    "T1D": "type 1 diabetes mellitus",
-    "T1DM": "type 1 diabetes mellitus",
-    "T2D": "type 2 diabetes mellitus",
-    "T2DM": "type 2 diabetes mellitus",
-    "MODY": "maturity-onset diabetes of the young",
+    "T1D": ("type 1 diabetes mellitus",),
+    "T1DM": ("type 1 diabetes mellitus",),
+    "T2D": ("type 2 diabetes mellitus",),
+    "T2DM": ("type 2 diabetes mellitus",),
+    "MODY": ("maturity-onset diabetes of the young",),
     # Cardiovascular
-    "CAD": "coronary artery disease",
-    "CHD": "coronary heart disease",
-    "MI": "myocardial infarction",
-    "HF": "heart failure",
-    "HFpEF": "heart failure with preserved ejection fraction",
-    "HFrEF": "heart failure with reduced ejection fraction",
-    "AFib": "atrial fibrillation",
-    "FH": "familial hypercholesterolemia",
-    # Liver / GI
-    "NASH": "non-alcoholic steatohepatitis",
-    "MASH": "metabolic dysfunction-associated steatohepatitis",
-    "NAFLD": "non-alcoholic fatty liver disease",
-    "MASLD": "metabolic dysfunction-associated steatotic liver disease",
-    "IBD": "inflammatory bowel disease",
-    "UC": "ulcerative colitis",
+    "CAD": ("coronary artery disease",),
+    "CHD": ("coronary heart disease",),
+    "MI": ("myocardial infarction",),
+    "HF": ("heart failure",),
+    # HFpEF / HFrEF — OT doesn't reliably index either subtype as a separate
+    # entity; fall back to the parent "heart failure" so the resolver still
+    # returns a valid (if less specific) target-disease association.
+    "HFpEF": ("heart failure with preserved ejection fraction", "heart failure"),
+    "HFrEF": ("heart failure with reduced ejection fraction", "heart failure"),
+    "AFib": ("atrial fibrillation",),
+    "FH": ("familial hypercholesterolemia",),
+    # Liver / GI — MASH/MASLD are the 2023+ naming; OT still indexes the
+    # legacy NASH/NAFLD entries, so the legacy alias is required as a
+    # fallback for resolution.
+    "NASH": ("non-alcoholic steatohepatitis",),
+    "MASH": (
+        "metabolic dysfunction-associated steatohepatitis",
+        "non-alcoholic steatohepatitis",
+    ),
+    "NAFLD": ("non-alcoholic fatty liver disease",),
+    "MASLD": (
+        "metabolic dysfunction-associated steatotic liver disease",
+        "non-alcoholic fatty liver disease",
+    ),
+    "IBD": ("inflammatory bowel disease",),
+    "UC": ("ulcerative colitis",),
     # Pulmonary
-    "COPD": "chronic obstructive pulmonary disease",
-    "IPF": "idiopathic pulmonary fibrosis",
+    "COPD": ("chronic obstructive pulmonary disease",),
+    "IPF": ("idiopathic pulmonary fibrosis",),
+    "OSA": ("obstructive sleep apnea",),
     # Neuroscience
-    "AD": "Alzheimer disease",
-    "PD": "Parkinson disease",
-    "ALS": "amyotrophic lateral sclerosis",
-    "MS": "multiple sclerosis",
-    "ASD": "autism spectrum disorder",
-    "ADHD": "attention deficit hyperactivity disorder",
-    "MDD": "major depressive disorder",
-    "OCD": "obsessive compulsive disorder",
-    "PTSD": "post-traumatic stress disorder",
+    "AD": ("Alzheimer disease",),
+    "PD": ("Parkinson disease",),
+    "ALS": ("amyotrophic lateral sclerosis",),
+    "MS": ("multiple sclerosis",),
+    "ASD": ("autism spectrum disorder",),
+    "ADHD": ("attention deficit hyperactivity disorder",),
+    "MDD": ("major depressive disorder",),
+    "OCD": ("obsessive compulsive disorder",),
+    "PTSD": ("post-traumatic stress disorder",),
     # Immunology / rheumatology
-    "RA": "rheumatoid arthritis",
-    "SLE": "systemic lupus erythematosus",
-    "PsA": "psoriatic arthritis",
-    "AS": "ankylosing spondylitis",
-    "OA": "osteoarthritis",
+    "RA": ("rheumatoid arthritis",),
+    "SLE": ("systemic lupus erythematosus",),
+    "PsA": ("psoriatic arthritis",),
+    "AS": ("ankylosing spondylitis",),
+    "OA": ("osteoarthritis",),
+    # Renal / urology
+    "ESRD": ("end-stage renal disease", "end stage kidney disease"),
+    "CKD": ("chronic kidney disease",),
+    "OAB": ("overactive bladder",),
+    # Pulmonary / immunodef
+    "AATD": ("alpha-1 antitrypsin deficiency",),
 }
 
 
@@ -405,15 +434,38 @@ def _normalize_indication_variants(name: str) -> list[str]:
     pivot = stripped or base
     _add(pivot.replace("-", " "))
 
+    # Bug V (v0.3.5): slash-separated biomarker tokens. ``"BRCA1/2-mutated
+    # ovarian cancer"`` and ``"MSI-H/dMMR colorectal cancer"`` are common
+    # oncology shorthand. Replace ``/`` with space so the substring after
+    # the biomarker prefix becomes searchable.
+    if "/" in base:
+        _add(base.replace("/", " "))
+
+    # Bug V (v0.3.5) — biomarker-prefix stripping. Common patterns:
+    # ``"BRCA1/2-mutated ovarian cancer"`` → ``"ovarian cancer"``,
+    # ``"HER2-positive breast cancer"`` → ``"breast cancer"``,
+    # ``"EGFR-mutant NSCLC"`` → ``"NSCLC"``. The biomarker prefix usually
+    # has zero OT search index value and the base disease term resolves
+    # cleanly. Match suffixes case-insensitively in the original casing.
+    for suffix in ("-mutated", "-mutant", "-positive", "-negative", "-amplified", "-high", "-low"):
+        idx = base.lower().find(suffix)
+        if idx != -1:
+            after = base[idx + len(suffix) :].strip(" -")
+            if after:
+                _add(after)
+            break  # one suffix is enough; multiples produce dupes
+
     # Acronym expansion: scan all 2–6 char alphanumeric tokens (preserving
     # mixed case so HFpEF / HFrEF / AFib still match), look each up in the
-    # acronym table case-insensitively, and add the expansion as a variant.
+    # acronym table case-insensitively, and add EVERY listed expansion as
+    # a variant. Multiple expansions support legacy aliases (MASH →
+    # modern + non-alcoholic steatohepatitis) when OT's index lags behind
+    # current naming conventions.
     for token in re.findall(r"\b[A-Za-z][A-Za-z0-9]{1,5}\b", base):
-        expansion = _ACRONYM_EXPANSIONS.get(token)
-        if expansion is None:
-            expansion = _ACRONYM_EXPANSIONS.get(token.upper())
-        if expansion:
-            _add(expansion)
+        expansions = _ACRONYM_EXPANSIONS.get(token) or _ACRONYM_EXPANSIONS.get(token.upper())
+        if expansions:
+            for expansion in expansions:
+                _add(expansion)
 
     return variants
 

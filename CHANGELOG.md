@@ -7,6 +7,66 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.3.5] — 2026-04-25
+
+Patch release. Fixes four bugs caught by a fifth-round live MCP smoke test
+(JAK2/PV, ADRB2/asthma, BCL2, BRCA1/2-mutated ovarian cancer, MASH, HFpEF,
+MAPK signaling pathway). All four are real-world resolution / display
+correctness issues; none change the public tool surface.
+
+### Fixed
+
+- **OT contribution exceeded declared max (Bug T).** ADRB2 / asthma showed
+  ``Open Targets association | 3.25 | 3.0 |`` because the
+  ``OT_CLINICALLY_VALIDATED_FLOOR`` (3.25) intentionally floors approved-drug
+  targets above the baseline 3.0 max. The display didn't reflect this and
+  looked like a math bug. Now the OT row max shows ``3.25`` always and the
+  contribution annotation explicitly notes ``— clinical-validated floor (3.25)``
+  when the floor fires. ``ScoreBreakdown.ot`` Field description updated to
+  document the dual-max behavior.
+- **Acronym table missed legacy aliases for OT-lagged terms (Bug P refined).**
+  ``MASH`` expanded to ``"metabolic dysfunction-associated steatohepatitis"``
+  which returned 0 OT hits — OT still indexes the legacy
+  ``"non-alcoholic steatohepatitis"`` (EFO_1001249). Same for HFpEF/HFrEF
+  (no OT entry) and MASLD. ``_ACRONYM_EXPANSIONS`` values are now tuples
+  supporting multiple candidate expansions, tried in order. Legacy aliases
+  added for MASH, MASLD, GBM, PDAC, CRC. New entries: ESRD, CKD, OAB, OSA,
+  AATD.
+- **Indication normalizer broke on slash-separated biomarkers (Bug V).**
+  ``"BRCA1/2-mutated ovarian cancer"`` and ``"MSI-H/dMMR colorectal cancer"``
+  failed to resolve. ``_normalize_indication_variants`` now adds a
+  slash → space variant AND a biomarker-suffix-strip variant (substring
+  after ``-mutated`` / ``-mutant`` / ``-positive`` / ``-negative`` /
+  ``-amplified`` / ``-high`` / ``-low``) so the bare disease term reaches
+  OT cleanly.
+- **Reactome pathway fuzzy match picked narrow disease subpathways
+  (Bug U).** ``"MAPK signaling"`` resolved to ``R-HSA-9652817``
+  (``"Signaling by MAPK mutants"``, ``isDisease: true``) instead of the
+  canonical broad cascade. Selection now collects all entries across result
+  groups (raised cap from 5 to 25), prefers ``isDisease: false`` entries,
+  and breaks ties by token-overlap with the query. Falls back to the
+  original first-of-first behavior only when every candidate is a disease
+  subpathway.
+
+### Added
+
+- 4 regression tests in ``tests/test_clients.py`` (one per bug, including
+  a Reactome edge case for the disease-only fallback).
+- New acronym entries in ``_ACRONYM_EXPANSIONS``: ESRD, CKD, OAB, OSA, AATD.
+- Multiple-expansion support: acronym values are now tuples of candidate
+  forms tried in order, with legacy aliases for MASH/MASLD/HFpEF/HFrEF/etc.
+- **218/218 tests pass.**
+
+### Still deferred to v0.4.0
+
+- Bug N — `compare_targets` DepMap column shows blank for pan-essential rows (cosmetic).
+- Bug O — Compounds column conflates PubChem and ChEMBL counts (cosmetic).
+- Bug H — GWAS empty-result latency optimization.
+- EFO → UBERON ontology-backed indication-to-tissue mapping.
+- 5-target live-API regression check + CDR developability + Foldseek + per-residue pLDDT + dedicated MaveDB tool.
+
+---
+
 ## [0.3.4] — 2026-04-25
 
 Patch release. Fixes five bugs caught by a fourth-round live MCP smoke test

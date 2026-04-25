@@ -5048,3 +5048,175 @@ def test_target_prioritization_breakdown_table_matches_score_breakdown():
         f"breakdown table contributions {axis_contribs} (sum {sum(axis_contribs):.2f}) "
         f"don't match score_breakdown.total ({breakdown.total:.2f}) — display drift"
     )
+
+
+# ---------------------------------------------------------------------------
+# v0.3.5 regression tests — four fifth-round fixes from the fourth smoke run
+# ---------------------------------------------------------------------------
+
+
+def test_target_prioritization_breakdown_ot_max_reflects_clinical_floor():
+    """Bug T: when the clinical-validated floor (3.25) raises the OT
+    contribution above the baseline 3.0 max, the displayed max must show
+    3.25 and the row must annotate that the floor fired — otherwise the
+    contribution looks like a bug ('3.25/3.0' is confusing)."""
+    from genesis_bio_mcp.models import (
+        GeneResolution,
+        ScoreBreakdown,
+        TargetDiseaseAssociation,
+        TargetPrioritizationReport,
+    )
+
+    breakdown = ScoreBreakdown(
+        ot=3.25,
+        depmap=0.0,
+        gwas=0.0,
+        known_drug=1.5,
+        chem_matter=1.0,
+        protein=1.5,
+        expression=0.0,
+    )
+    report = TargetPrioritizationReport(
+        gene_symbol="ADRB2",
+        indication="asthma",
+        resolution=GeneResolution(hgnc_symbol="ADRB2", source="input"),
+        protein_info=None,
+        disease_association=TargetDiseaseAssociation(
+            gene_symbol="ADRB2",
+            disease_name="asthma",
+            disease_efo_id="EFO_0000270",
+            ensembl_id="ENSG00000169252",
+            overall_score=0.63,
+            genetic_association_score=None,
+            somatic_mutation_score=None,
+            known_drug_score=0.99,
+            literature_mining_score=0.85,
+            evidence_count=10,
+        ),
+        cancer_dependency=None,
+        gwas_evidence=None,
+        compounds=None,
+        chembl_compounds=None,
+        priority_score=7.25,
+        priority_tier="High",
+        score_breakdown=breakdown,
+        evidence_summary="test",
+        data_gaps=[],
+        errors={},
+        data_coverage_pct=80.0,
+        proxy_data_flags={},
+        score_confidence_interval=None,
+        api_latency_s={},
+    )
+    md = report.to_markdown()
+    assert "| Open Targets association | 3.25" in md
+    assert "| 3.25 |" in md, "OT row max must reflect clinical floor (3.25)"
+    assert "clinical-validated floor" in md
+
+
+def test_open_targets_acronym_expansions_include_legacy_aliases():
+    """Bug P refined: MASH expands to BOTH the modern term AND the legacy
+    'non-alcoholic steatohepatitis' so the resolver can fall through to
+    whatever OT actually indexes (OT still uses the legacy term, not MASH).
+    Also verify HFpEF falls back to the parent 'heart failure'."""
+    from genesis_bio_mcp.clients.open_targets import _normalize_indication_variants
+
+    mash = _normalize_indication_variants("MASH")
+    assert "metabolic dysfunction-associated steatohepatitis" in mash
+    assert "non-alcoholic steatohepatitis" in mash, (
+        "legacy alias missing — OT still indexes the old term"
+    )
+
+    hfpef = _normalize_indication_variants("HFpEF")
+    assert "heart failure with preserved ejection fraction" in hfpef
+    assert "heart failure" in hfpef, "parent disease fallback missing"
+
+    esrd = _normalize_indication_variants("ESRD")
+    assert "end-stage renal disease" in esrd
+    aatd = _normalize_indication_variants("AATD")
+    assert "alpha-1 antitrypsin deficiency" in aatd
+    osa = _normalize_indication_variants("OSA")
+    assert "obstructive sleep apnea" in osa
+
+
+def test_open_targets_normalize_handles_slash_and_biomarker_prefix():
+    """Bug V: oncology shorthand like 'BRCA1/2-mutated ovarian cancer' or
+    'HER2-positive breast cancer' broke the normalizer. Variants must
+    include both a slash → space transformation AND the substring after
+    common biomarker suffixes (so 'ovarian cancer' alone gets tried)."""
+    from genesis_bio_mcp.clients.open_targets import _normalize_indication_variants
+
+    v = _normalize_indication_variants("BRCA1/2-mutated ovarian cancer")
+    assert any("BRCA1 2" in candidate for candidate in v)
+    assert "ovarian cancer" in v
+
+    v2 = _normalize_indication_variants("HER2-positive breast cancer")
+    assert "breast cancer" in v2
+
+    v3 = _normalize_indication_variants("EGFR-mutant NSCLC")
+    assert "NSCLC" in v3
+    assert "non-small cell lung carcinoma" in v3
+
+    v4 = _normalize_indication_variants("rheumatoid arthritis")
+    assert v4 == ["rheumatoid arthritis"]
+
+
+@respx.mock
+async def test_reactome_pathway_search_prefers_non_disease_entry(http_client):
+    """Bug U: 'MAPK signaling' picked up 'Signaling by MAPK mutants'
+    (isDisease=true, narrow cancer subpathway) over the canonical broad
+    cascade. Selection must prefer isDisease=false entries when
+    alternatives exist."""
+    from genesis_bio_mcp.clients.reactome import ReactomeClient
+
+    respx.get(url__regex=r"reactome\.org/ContentService/search/query").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "entries": [
+                            {
+                                "stId": "R-HSA-9652817",
+                                "name": "Signaling by MAPK mutants",
+                                "isDisease": True,
+                            },
+                            {
+                                "stId": "R-HSA-5683057",
+                                "name": "MAPK family signaling cascades",
+                                "isDisease": False,
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+    )
+    client = ReactomeClient(http_client)
+    stid = await client._search_pathway_stid("MAPK signaling")
+    assert stid == "R-HSA-5683057", (
+        f"selector picked {stid} — should have preferred the non-disease canonical pathway"
+    )
+
+    # Edge case: if only disease entries are available, fall back to first.
+    respx.get(url__regex=r"reactome\.org/ContentService/search/query").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "entries": [
+                            {
+                                "stId": "R-HSA-9652817",
+                                "name": "Signaling by MAPK mutants",
+                                "isDisease": True,
+                            }
+                        ]
+                    }
+                ]
+            },
+        )
+    )
+    client2 = ReactomeClient(http_client)
+    stid2 = await client2._search_pathway_stid("MAPK signaling")
+    assert stid2 == "R-HSA-9652817"

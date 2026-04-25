@@ -1834,7 +1834,12 @@ class ScoreBreakdown(BaseModel):
     can still rank below peers that win on DepMap/GWAS/drug/chem axes.
     """
 
-    ot: float = Field(default=0.0, description="Open Targets association contribution (max 3.0)")
+    ot: float = Field(
+        default=0.0,
+        description="Open Targets association contribution (baseline max 3.0; up to 3.25 "
+        "when the clinical-validated floor fires for approved-drug targets — see "
+        "OT_CLINICALLY_VALIDATED_FLOOR in tools/target_prioritization.py).",
+    )
     depmap: float = Field(default=0.0, description="Cancer dependency contribution (max 2.0)")
     gwas: float = Field(default=0.0, description="GWAS evidence contribution (max 2.0)")
     known_drug: float = Field(default=0.0, description="Known-drug evidence contribution (max 1.5)")
@@ -1982,9 +1987,18 @@ class TargetPrioritizationReport(BaseModel):
         chembl = self.chembl_compounds
         pi = self.protein_info
 
-        # Open Targets association
-        ot_note = f"OT overall_score={da.overall_score:.2f}" if da else "no data"
-        lines.append(f"| Open Targets association | {sb.ot:.2f} ({ot_note}) | 3.0 |")
+        # Open Targets association — baseline max 3.0; the clinical-validated
+        # floor (OT_CLINICALLY_VALIDATED_FLOOR=3.25) raises the effective max
+        # for approved-drug targets where genetic+somatic are null. Annotate
+        # the row when the floor fires so the >3.0 contribution is explained
+        # rather than looking like a bug.
+        if da:
+            ot_note = f"OT overall_score={da.overall_score:.2f}"
+            if sb.ot > 3.0:
+                ot_note += " — clinical-validated floor (3.25)"
+        else:
+            ot_note = "no data"
+        lines.append(f"| Open Targets association | {sb.ot:.2f} ({ot_note}) | 3.25 |")
 
         # Cancer dependency
         if cd:

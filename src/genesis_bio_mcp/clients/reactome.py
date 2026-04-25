@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 
 import httpx
 
@@ -216,10 +217,25 @@ class ReactomeClient:
             return genes
 
     async def _search_pathway_stid(self, name: str) -> str | None:
-        """Search Reactome ContentService for a pathway by name; return its stId."""
+        """Search Reactome ContentService for a pathway by name; return its stId.
+
+        Bug U (v0.3.5): the previous implementation took the first entry of
+        the first result group. Reactome's relevance ranking often surfaces
+        narrow disease subpathways (``"Signaling by MAPK mutants"``,
+        ``isDisease: true``) above the canonical broad pathway
+        (``"MAPK family signaling cascades"``, ``isDisease: false``) when
+        the query is a generic term like ``"MAPK signaling"``.
+
+        Selection now:
+        1. Collect all entries across result groups (cap 25, plenty for ranking)
+        2. Prefer entries with ``isDisease: false`` — disease-specific
+           subpathways virtually always have ``isDisease: true``
+        3. Among same-disease-status entries, prefer ones whose name
+           contains all the query's tokens (broad pathway match) over ones
+           where only a subset matches
+        4. Fall back to the original first-of-first behavior if nothing matches
+        """
         try:
-            # NOTE: the search endpoint lives at /search/query (no /data/ prefix);
-            # /data/search/query 404s.
             resp = await self._client.get(
                 f"{_REACTOME_CONTENT_URL}/search/query",
                 params={
@@ -227,7 +243,7 @@ class ReactomeClient:
                     "types": "Pathway",
                     "species": "Homo sapiens",
                     "cluster": "true",
-                    "rows": 5,
+                    "rows": 25,
                 },
                 timeout=15.0,
             )
@@ -238,11 +254,31 @@ class ReactomeClient:
             return None
 
         results = data.get("results", [])
+        all_entries: list[dict] = []
         for group in results:
-            entries = group.get("entries", [])
-            if entries:
-                return entries[0].get("stId")
-        return None
+            for entry in group.get("entries", []) or []:
+                all_entries.append(entry)
+        if not all_entries:
+            return None
+
+        query_tokens = {t.lower() for t in re.split(r"[^A-Za-z0-9]+", name) if len(t) > 1}
+
+        def _entry_score(entry: dict) -> tuple[int, int, int]:
+            """Sort key: lower is better.
+
+            (is_disease, missing_token_count, original_index_proxy)
+            """
+            is_disease = 1 if entry.get("isDisease") else 0
+            entry_name = (entry.get("name") or "").lower()
+            # Strip Reactome's HTML highlight spans before token-matching.
+            entry_clean = re.sub(r"<[^>]+>", "", entry_name)
+            entry_tokens = {t for t in re.split(r"[^a-z0-9]+", entry_clean) if len(t) > 1}
+            missing = len(query_tokens - entry_tokens) if query_tokens else 0
+            return (is_disease, missing, 0)
+
+        ordered = sorted(all_entries, key=_entry_score)
+        winner = ordered[0]
+        return winner.get("stId")
 
     async def _fetch_pathway_genes(self, stid: str, max_genes: int) -> list[str]:
         """Fetch ReferenceGeneProduct participants for a Reactome pathway stId."""
