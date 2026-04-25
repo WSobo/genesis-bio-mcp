@@ -1037,6 +1037,20 @@ class ChEMBLCompounds(BaseModel):
         None,
         description="Highest pChEMBL value found (most potent compound); 9 = 1 nM, 7 = 100 nM",
     )
+    best_pchembl_functional: float | None = Field(
+        None,
+        description="Highest pChEMBL from F-type (cell-based / functional) assays only. "
+        "Functional potency is more predictive of cellular activity than binding-only "
+        "data; targets with strong binding but no functional readout (MYC, β-catenin) "
+        "produce binders that often don't translate to cellular effect.",
+    )
+    best_pchembl_binding: float | None = Field(
+        None,
+        description="Highest pChEMBL from B-type (binding) assays only. Surfaces the "
+        "strongest binding-only evidence; if no functional pChEMBL is present, the "
+        "scoring axis applies a discount because binding-only data overestimates "
+        "druggability for known undruggable / scaffold-binding targets.",
+    )
     compounds: list[ChEMBLActivity] = Field(
         description="Top 20 most potent compounds sorted by pChEMBL (descending)"
     )

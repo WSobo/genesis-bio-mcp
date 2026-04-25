@@ -326,6 +326,13 @@ class DepMapClient:
         total = entry["cell_lines_with_data"]
         fraction = dep / total if total > 0 else 0.0
         pan_essential = entry["common_essential"]
+        # Defensive cap: any gene where ≥95% of measured cell lines are
+        # dependent is essential by definition, even if DepMap hasn't formally
+        # flagged it. Catches mitochondrial-encoded subunits (MT-ND1 etc.)
+        # and any other gene that scrapes through DepMap's common_essential
+        # heuristic but trips the empirical 95% threshold.
+        if fraction >= 0.95:
+            pan_essential = True
 
         # Derive a mean CERES proxy from fraction (real scores not in summary endpoint)
         # Lineage breakdown and cell_lines come from OT supplementary data if available
@@ -425,7 +432,10 @@ class DepMapClient:
             gene_symbol=gene_symbol,
             mean_ceres_score=round(mean_score, 4),
             fraction_dependent_lines=round(fraction_dependent, 4),
-            pan_essential=False,
+            # OT-proxy path historically forced this False; same 95% guard
+            # applies here so MT-encoded genes inferred via OT somatic
+            # mutation evidence don't escape the pan-essential cap.
+            pan_essential=fraction_dependent >= 0.95,
             top_dependent_lineages=top_lineages,
             cell_lines=top_lines,
             data_source=(

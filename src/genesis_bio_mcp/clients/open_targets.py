@@ -123,32 +123,62 @@ class OpenTargetsClient:
     async def _resolve_disease(self, name: str) -> tuple[str | None, str | None]:
         """Resolve a free-text indication to (EFO ID, canonical name).
 
-        OT's ``search`` GraphQL is autocomplete-style and brittle to natural-
-        language disease strings. ``"non-small-cell lung cancer (NSCLC)"``
-        returns zero hits; even the cleaned ``"non-small-cell lung cancer"``
-        returns zero. Only the bare abbreviation ``"NSCLC"`` resolves to
-        ``EFO_0003060``. Failing silently here produces a confident-looking
-        but wrong ``LOW PRIORITY`` call on real targets, so we explicitly
-        retry with a small set of normalized variants and log which one won.
+        OT's ``search`` GraphQL is autocomplete-style and brittle. Two failure
+        modes have shown up in production:
+
+        1. Returns zero hits for a queryable string (bug J, fixed v0.3.2)
+        2. Returns the WRONG disease as the top hit because of fuzzy substring
+           matching: ``"type-2 diabetes mellitus"`` returned MONDO_0010802
+           (pancreatic-hypoplasia-diabetes-congenital-heart-disease syndrome)
+           even though MONDO_0005148 (type 2 diabetes mellitus) was the right
+           answer (bug K, this fix).
+
+        Strategy: try every normalized variant, score each disease hit by
+        token-set similarity to its triggering variant, and return the
+        highest-scoring match across all variants. A minimum threshold
+        rejects fuzzy garbage hits (the syndrome above scores ~0.13 against
+        "type 2 diabetes mellitus" — well below threshold).
         """
+        best: tuple[float, dict, str] | None = None  # (score, hit, winning_variant)
         for candidate in _normalize_indication_variants(name):
             data = await self._graphql(_DISEASE_SEARCH_QUERY, {"name": candidate})
             if data is None:
                 continue
             hits = data.get("data", {}).get("search", {}).get("hits", [])
             for hit in hits:
-                if hit.get("entity") == "disease":
-                    if candidate != name:
-                        logger.info(
-                            "Open Targets disease resolution: '%s' returned no hits, "
-                            "fallback variant '%s' resolved to %s (%s)",
-                            name,
-                            candidate,
-                            hit.get("name"),
-                            hit["id"],
-                        )
-                    return hit["id"], hit.get("name")
-        return None, None
+                if hit.get("entity") != "disease":
+                    continue
+                hit_name = hit.get("name", "")
+                # Score against BOTH the candidate variant AND the original
+                # input. Acronym-style hits ("NSCLC" → "non-small cell lung
+                # carcinoma") have zero token overlap with the bare
+                # abbreviation but solid overlap with the original
+                # "non-small-cell lung cancer (NSCLC)" — taking the max
+                # accepts those without lowering the threshold.
+                score = max(
+                    _name_match_score(candidate, hit_name),
+                    _name_match_score(name, hit_name),
+                )
+                if best is None or score > best[0]:
+                    best = (score, hit, candidate)
+                    if score >= 0.95:
+                        break
+            if best and best[0] >= 0.95:
+                break
+
+        if best is None or best[0] < _DISEASE_MATCH_THRESHOLD:
+            return None, None
+        score, hit, winning = best
+        if winning != name or score < 1.0:
+            logger.info(
+                "Open Targets disease resolution: '%s' → variant '%s' → %s (%s) [match score=%.2f]",
+                name,
+                winning,
+                hit.get("name"),
+                hit["id"],
+                score,
+            )
+        return hit["id"], hit.get("name")
 
     async def _fetch_association(
         self,
@@ -218,6 +248,50 @@ class OpenTargetsClient:
                 logger.warning("Open Targets GraphQL request failed: %s", exc)
                 return None
         return None
+
+
+# _DISEASE_MATCH_THRESHOLD (0.5):
+#   Minimum token-set Jaccard similarity between the queried indication
+#   variant and the returned disease name. Below this we treat the hit as
+#   fuzzy garbage and continue searching. Calibrated so:
+#     - "type 2 diabetes mellitus" vs MONDO_0005148 ("type 2 diabetes mellitus") → 1.00 ✓
+#     - "type-2 diabetes mellitus" vs MONDO_0010802 ("pancreatic-hypoplasia-
+#       diabetes-congenital-heart-disease syndrome") → ~0.11 ✗ (rejected)
+#     - "NSCLC" vs EFO_0003060 ("non-small cell lung carcinoma") → 0.0 token
+#       overlap, but the abbreviation passes via prefix-substring path below.
+#   Range to consider: 0.4–0.6. Below 0.4 risks accepting weak fuzzy matches;
+#   above 0.6 risks rejecting valid abbreviation/acronym matches.
+_DISEASE_MATCH_THRESHOLD = 0.5
+
+
+def _name_match_score(query: str, hit_name: str) -> float:
+    """Score a disease hit's name against the queried variant.
+
+    Returns 0.0–1.0. Token-set Jaccard similarity by default, with a perfect
+    1.0 when the query is a substring of the hit name (or vice versa) — the
+    latter rule lets short abbreviations like "NSCLC" pass when the hit name
+    is the long form ("non-small cell lung carcinoma") and the abbreviation
+    is in OT's index for that disease.
+    """
+    if not query or not hit_name:
+        return 0.0
+    q_norm = query.strip().lower().replace("-", " ")
+    h_norm = hit_name.strip().lower().replace("-", " ")
+    if q_norm == h_norm:
+        return 1.0
+    # Strict substring match either direction = high confidence (covers
+    # short abbreviations indexed against long disease names).
+    if q_norm in h_norm or h_norm in q_norm:
+        # Cap at 0.95 so an exact match still beats a substring match in
+        # ranking when both fire from different variants.
+        return 0.95
+    q_tokens = set(q_norm.split())
+    h_tokens = set(h_norm.split())
+    if not q_tokens or not h_tokens:
+        return 0.0
+    intersection = q_tokens & h_tokens
+    union = q_tokens | h_tokens
+    return len(intersection) / len(union)
 
 
 def _normalize_indication_variants(name: str) -> list[str]:

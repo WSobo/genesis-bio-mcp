@@ -49,11 +49,18 @@ class ChEMBLClient:
             )
 
         best = max(a.pchembl_value for a in activities)
+        # Split bests by assay type so the scoring axis can prefer functional/
+        # cell-based potency over binding-only (which over-credits scaffold
+        # binders for undruggable targets like MYC).
+        functional = [a.pchembl_value for a in activities if (a.assay_type or "").upper() == "F"]
+        binding = [a.pchembl_value for a in activities if (a.assay_type or "").upper() == "B"]
         return ChEMBLCompounds(
             gene_symbol=gene_symbol,
             target_chembl_id=target_id,
             total_active_compounds=len(activities),
             best_pchembl=round(best, 2),
+            best_pchembl_functional=round(max(functional), 2) if functional else None,
+            best_pchembl_binding=round(max(binding), 2) if binding else None,
             compounds=activities[:20],
         )
 

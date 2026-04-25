@@ -355,9 +355,10 @@ async def _fetch_drug_history(
 
 # Cap safety lookups at the top-N approved drugs so adding OpenFDA to
 # get_drug_history doesn't blow latency budget on targets with 30+ approved
-# drugs (e.g. TNF, EGFR). Five is enough to cover the commercially dominant
-# drugs in every class we've examined.
+# drugs (e.g. TNF, EGFR). Five is the display cap; we query a wider pool
+# so we can re-rank by FAERS report volume after lookup.
 _SAFETY_LOOKUP_CAP = 5
+_SAFETY_LOOKUP_POOL = 10
 
 
 async def attach_safety_signals(
@@ -365,56 +366,66 @@ async def attach_safety_signals(
     *,
     openfda: OpenFDAClient | None,
 ) -> list[DrugInteraction]:
-    """Populate ``.safety`` on the top-N approved drugs, in place on new copies.
+    """Populate ``.safety`` on the top-N approved direct-engagement drugs.
 
     Non-approved drugs are left untouched — FAERS data for investigational
-    compounds is sparse and often misleading (very few reports, skewed toward
-    early safety signals). Failures are swallowed; a drug whose OpenFDA
-    lookup errors simply carries ``safety=None``.
+    compounds is sparse and often misleading. Failures are swallowed; a drug
+    whose OpenFDA lookup errors simply carries ``safety=None``.
+
+    Selection (Bugs F.1 + F.2 — v0.3.3):
+    - Strict direct-engagement filter: only drugs whose DGIdb interaction_type
+      is in ``_DIRECT_TYPES`` are eligible. The v0.3.2 fallback for untyped
+      drugs leaked non-target co-mentions (atezolizumab on EGFR, ACYCLOVIR
+      on ABL1) into the panel. DGIdb leaves ``interaction_type=None`` for
+      exactly those spurious associations, so allowing untyped drugs in
+      defeats the filter.
+    - Pre-rank candidates by (phase desc, source-count desc, name asc).
+      Source count proxies for "real curated interactor" — more DGIdb
+      databases attesting to the interaction = higher confidence.
+    - Query a wider pool (``_SAFETY_LOOKUP_POOL``=10) than we display, then
+      re-rank by ``total_reports`` so well-attested drugs (decades of FAERS
+      reports — IMATINIB) surface ahead of recent approvals with sparse
+      FAERS history (ASCIMINIB) that previously won on alphabetical sort.
     """
     if openfda is None or not drugs:
         return drugs
 
-    # Restrict FAERS enrichment to drugs whose DGIdb interaction_type indicates
-    # direct target engagement (inhibitor / antagonist / agonist / binder /
-    # blocker / modulator). DGIdb returns ANY drug ever co-mentioned with the
-    # gene, including incidental co-administrations: querying EGFR returns
-    # atezolizumab (PD-L1) and bevacizumab (VEGF) because they're given
-    # alongside EGFR-TKIs in trials. Their FAERS profiles describe their own
-    # mechanism, not target-related liability — including them in EGFR's safety
-    # panel is actively misleading. ``interaction_type=None`` is kept (DGIdb
-    # often lacks the typing for new approvals) but unknown-type drugs are
-    # ranked behind explicit direct interactors below.
-    approved = [d for d in drugs if d.approved]
-    direct_engagers = [
-        d for d in approved if d.interaction_type and d.interaction_type.lower() in _DIRECT_TYPES
+    candidates = [
+        d
+        for d in drugs
+        if d.approved and d.interaction_type and d.interaction_type.lower() in _DIRECT_TYPES
     ]
-    untyped = [d for d in approved if not d.interaction_type]
-
-    pool = direct_engagers + untyped if direct_engagers else approved
-    approved_sorted = sorted(
-        pool,
-        key=lambda d: (-(d.phase or 4), d.drug_name.lower()),
-    )
-    targets = approved_sorted[:_SAFETY_LOOKUP_CAP]
-    if not targets:
+    if not candidates:
         return drugs
 
+    candidates.sort(
+        key=lambda d: (-(d.phase or 4), -len(d.sources), d.drug_name.lower()),
+    )
+    pool = candidates[:_SAFETY_LOOKUP_POOL]
+
     signals = await asyncio.gather(
-        *(openfda.get_safety_signals(d.drug_name) for d in targets),
+        *(openfda.get_safety_signals(d.drug_name) for d in pool),
         return_exceptions=True,
     )
-    safety_by_name: dict[str, Any] = {}
-    for drug, signal in zip(targets, signals, strict=True):
+
+    drug_signal_pairs: list[tuple[DrugInteraction, Any]] = []
+    for drug, signal in zip(pool, signals, strict=True):
         if isinstance(signal, Exception):
             logger.warning("OpenFDA lookup raised for %s: %s", drug.drug_name, signal)
             continue
-        if signal is not None:
-            safety_by_name[drug.drug_name.lower()] = signal
+        if signal is None:
+            continue
+        drug_signal_pairs.append((drug, signal))
 
-    if not safety_by_name:
+    # Re-rank by FAERS report volume — established drugs with thousands of
+    # reports rank above newcomers with double-digit reports.
+    drug_signal_pairs.sort(key=lambda ds: ds[1].total_reports or 0, reverse=True)
+    selected = drug_signal_pairs[:_SAFETY_LOOKUP_CAP]
+
+    if not selected:
         return drugs
 
+    safety_by_name: dict[str, Any] = {drug.drug_name.lower(): sig for drug, sig in selected}
     out: list[DrugInteraction] = []
     for d in drugs:
         sig = safety_by_name.get(d.drug_name.lower())
@@ -496,6 +507,15 @@ def _compute_score(
     # Cap at 3: ≥3 replicated trait hits = full credit. Keeps score stable whether
     # the fetch returned 3 or 30 hits — pagination differences don't affect scoring.
     #
+    # Bug M (v0.3.3): when GWAS fell back to unfiltered top gene-level
+    # associations (Bug D fix), the surfaced hits aren't trait-relevant — they
+    # might be height or sex-hormone GWAS hits at a TP53 locus when the query
+    # was Li-Fraumeni. Surface them in the report for context, but the GWAS
+    # axis must score 0 — the axis represents trait-relevant evidence, and
+    # off-trait hits don't count. Without this gate, MRAS outranked HRAS for
+    # PDAC because MRAS's GWAS fallback got full 2.0 credit from unrelated
+    # traits.
+    #
     # Monogenic credit: when OT's genetic_association_score is high
     # (> OT_GENETIC_MONOGENIC_THRESHOLD), the disease is Mendelian and absent
     # GWAS data is a feature of the disease class, not weak evidence. Award
@@ -503,7 +523,10 @@ def _compute_score(
     # and other targets where OT's overall_score already captures the genetic
     # certainty in full.
     if gwas_ev:
-        breakdown.gwas = min(gwas_ev.total_associations, 3) / 3 * 2.0
+        if "no exact-trait match" in (gwas_ev.trait_query or ""):
+            breakdown.gwas = 0.0
+        else:
+            breakdown.gwas = min(gwas_ev.total_associations, 3) / 3 * 2.0
     elif (
         disease_assoc
         and (disease_assoc.genetic_association_score or 0) > OT_GENETIC_MONOGENIC_THRESHOLD
@@ -516,17 +539,40 @@ def _compute_score(
         breakdown.known_drug = disease_assoc.known_drug_score * 1.5
 
     # Chemical matter (max 1.5)
-    # ChEMBL potency-based scoring takes precedence over PubChem count-based scoring
+    # ChEMBL potency-based scoring takes precedence over PubChem count-based scoring.
+    #
+    # Bug I (v0.3.3): assay-type weighting. A pChEMBL of 9 from a binding
+    # assay tells you nothing about cellular activity — MYC has dozens of
+    # high-pChEMBL hits from MYC-MAX heterodimerization or G-quadruplex
+    # binders, none of which translate to cellular MYC inhibition. Apply
+    # full credit only when the strongest potency comes from a cell-based /
+    # functional assay (assay_type=F); binding-only evidence gets a discount
+    # because binding ≠ druggability.
     if chembl_compounds and chembl_compounds.best_pchembl is not None:
-        bp = chembl_compounds.best_pchembl
-        if bp >= 9:
-            breakdown.chem_matter = 1.5  # IC50 ≤ 1 nM — clinical-grade potency
-        elif bp >= 7:
-            breakdown.chem_matter = 1.0  # IC50 ≤ 100 nM — lead quality
-        elif bp >= 5:
-            breakdown.chem_matter = 0.5  # IC50 ≤ 10 µM — hit quality
+        bp_func = chembl_compounds.best_pchembl_functional
+        bp_overall = chembl_compounds.best_pchembl
+        if bp_func is not None:
+            # Functional / cell-based potency present — full credit on the
+            # functional best (which is ≤ overall best by construction).
+            if bp_func >= 9:
+                breakdown.chem_matter = 1.5
+            elif bp_func >= 7:
+                breakdown.chem_matter = 1.0
+            elif bp_func >= 5:
+                breakdown.chem_matter = 0.5
+            else:
+                breakdown.chem_matter = 0.25
         else:
-            breakdown.chem_matter = 0.25  # active but weak
+            # Binding-only potency — apply ~33% discount. Strong binders may
+            # still mark a tractable target, but the confidence is lower.
+            if bp_overall >= 9:
+                breakdown.chem_matter = 1.0  # was 1.5
+            elif bp_overall >= 7:
+                breakdown.chem_matter = 0.7  # was 1.0
+            elif bp_overall >= 5:
+                breakdown.chem_matter = 0.35  # was 0.5
+            else:
+                breakdown.chem_matter = 0.2  # was 0.25
     elif compounds and compounds.total_active_compounds >= PUBCHEM_MIN_COMPOUNDS:
         breakdown.chem_matter = min(compounds.total_active_compounds, 100) / 100 * 1.5
     # PubChem count < PUBCHEM_MIN_COMPOUNDS with no ChEMBL potency data → no usable chemical matter

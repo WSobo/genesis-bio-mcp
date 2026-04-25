@@ -7,6 +7,105 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.3.3] — 2026-04-25
+
+Patch release. Fixes six bugs caught by a third-round live MCP smoke test
+(EGFR, ABL1, GLP1R, MT-ND1, BCR-ABL1, TP53/Li-Fraumeni, KRAS/NRAS/HRAS/MRAS
+in PDAC). Includes one **silent-data-loss critical** in EFO matching and
+two scoring-rubric corrections that were affecting target rankings on
+real-world queries. Also folds in the chemical-matter assay-type weighting
+that was deferred to v0.4.0.
+
+### Fixed
+
+- **OpenFDA off-target leak (Bug F.1).** v0.3.2 restricted FAERS enrichment
+  to direct-engagement DGIdb interaction types but left an "untyped
+  fallback" for newer approvals DGIdb hadn't categorized yet. That fallback
+  let in spurious co-mentions: ACYCLOVIR and ATP appeared in ABL1's safety
+  panel, and ATEZOLIZUMAB / BEVACIZUMAB still leaked into EGFR's. Removed
+  the untyped fallback entirely — DGIdb leaves `interaction_type=None` for
+  exactly the spurious associations we don't want, so accepting untyped
+  defeats the filter. Trade-off: very-recent approvals not yet typed by
+  DGIdb won't get FAERS coverage; this is the correct precision/recall
+  trade-off for a safety panel.
+- **OpenFDA selection by FAERS volume, not alphabetical (Bug F.2).** v0.3.2
+  sorted candidates by `(phase desc, name asc)`, so for ABL1 (six phase-4
+  inhibitors) ASCIMINIB beat IMATINIB on alphabetical sort despite IMATINIB
+  having decades more FAERS data. Now queries a wider candidate pool (10
+  vs 5), pre-ranks by `(phase desc, source-count desc, name asc)`, then
+  re-ranks the returned signals by `total_reports` and keeps the top 5
+  for display. Result: established drugs surface ahead of recent approvals.
+- **EFO matcher fuzzy-substring silent-data-loss (Bug K).** Same class as
+  Bug J. `"type-2 diabetes mellitus (T2DM)"` returned `MONDO_0010802`
+  (pancreatic-hypoplasia-diabetes-congenital-heart-disease syndrome) — a
+  rare congenital syndrome that fuzzy-matched on the word "diabetes". GLP1R
+  (the most validated T2D target) scored 0.767 for the wrong disease.
+  Resolver now scores every variant's hits by token-set Jaccard against
+  *both* the variant and the original input, picks the highest-scoring
+  match across all variants, and rejects matches below
+  `_DISEASE_MATCH_THRESHOLD` (0.5). The pancreatic-hypoplasia hit scores
+  ~0.13 and is rejected; the real T2D entry scores 1.0 and wins.
+- **Pan-essential cap missed mitochondrial-encoded genes (Bug L).** MT-ND1
+  scored 2.0/2.0 cancer-dependency credit despite being a mitochondrial
+  complex I subunit (you can't drug it without destroying every
+  mitochondrion). DepMap's `common_essential` flag doesn't fire for genes
+  outside the routine CRISPR screen. Added a defensive heuristic: if
+  ≥95% of measured cell lines are dependent, treat as pan-essential
+  regardless of the `common_essential` flag. Applies to both the cache
+  path and the OT-proxy fallback path.
+- **GWAS fallback over-credit (Bug M).** v0.3.2's Bug D fix surfaced
+  unfiltered top gene-level GWAS hits when no exact-trait match was found.
+  But `_compute_score` then awarded full GWAS credit for those hits even
+  though they were under unrelated traits. Result: TP53/Li-Fraumeni earned
+  GWAS credit from sex-hormone-binding-globulin and height GWAS hits at
+  the TP53 locus; MRAS outranked HRAS for PDAC because off-trait hits
+  inflated its score. Fix: detect the `"no exact-trait match"` sentinel
+  in `gwas_ev.trait_query` and zero the GWAS axis. Hits still appear in
+  the report for context — they just don't score.
+- **Chemical-matter scoring didn't weight assay type (Bug I, v0.4.0
+  pull-forward).** MYC scored 1.5/1.5 from binding-only assays (MYC-MAX
+  heterodimerization, G-quadruplex binders) despite no functional /
+  cellular activity — those binders virtually never translate. Added
+  `best_pchembl_functional` and `best_pchembl_binding` fields to
+  `ChEMBLCompounds`, populated from `assay_type` (F vs B) in the ChEMBL
+  client. `_compute_score` now prefers functional potency at full credit
+  (1.5 / 1.0 / 0.5 / 0.25 by tier) and discounts binding-only by ~33%
+  (1.0 / 0.7 / 0.35 / 0.2). Targets with strong functional readouts
+  (kinases) keep their scores; binding-only undruggables (MYC,
+  β-catenin) lose ~0.5 credit on the chemical-matter axis.
+
+### Added
+
+- `_DISEASE_MATCH_THRESHOLD = 0.5` and `_name_match_score()` helper in
+  `clients/open_targets.py` with documented scoring (substring rule for
+  acronyms, Jaccard otherwise).
+- `_SAFETY_LOOKUP_POOL = 10` in `tools/target_prioritization.py` —
+  candidate pool for the new two-pass FAERS ranking.
+- `best_pchembl_functional` and `best_pchembl_binding` fields on
+  `ChEMBLCompounds` model with documented tuning rationale.
+- 6 regression tests in `tests/test_clients.py` (one per bug).
+- 2 existing tests updated to match intentional behavior changes
+  (DepMap pan-essential cap firing in mocked 100% dependency case;
+  attach_safety_signals strict-filter dropping untyped drugs).
+- **209/209 tests pass.**
+
+### Still deferred to v0.4.0
+
+- **Bug N** — `compare_targets` DepMap column shows blank for pan-essential
+  rows; cosmetic, no scoring impact.
+- **Bug O** — Compounds column conflates PubChem and ChEMBL counts;
+  cosmetic clarity issue in `compare_targets` table.
+- **Bug H** — GWAS empty-result latency optimization.
+- **EFO → UBERON** ontology-backed indication-to-tissue mapping
+  (replaces hardcoded `config/indication_tissue_map.py`).
+- **5-target live-API regression check** (BRAF/melanoma, EGFR/NSCLC,
+  PCSK9/hypercholesterolemia, TNF/RA, KRAS/pancreatic).
+- **CDR developability** on `get_antibody_structures`, **Foldseek**
+  structural homologs, **per-residue pLDDT bands**, **dedicated
+  per-variant MaveDB tool**.
+
+---
+
 ## [0.3.2] — 2026-04-25
 
 Patch release. Fixes five bugs caught by a second-round live MCP smoke test
