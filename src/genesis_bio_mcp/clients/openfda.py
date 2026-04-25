@@ -61,8 +61,13 @@ class OpenFDAClient:
         """Return a :class:`DrugSafetySignal` for *drug_name*.
 
         The lookup matches either generic or brand name; OpenFDA indexes both.
+        Drug names from DGIdb often carry pharmaceutical-form suffixes
+        (``ATORVASTATIN CALCIUM TRIHYDRATE``, ``DACOMITINIB ANHYDROUS``) that
+        OpenFDA's exact-match fields don't recognize. We strip those suffixes
+        so biologics and small molecules surface their FAERS records reliably.
         """
-        key = drug_name.strip().lower()
+        normalized = _normalize_drug_name(drug_name)
+        key = normalized.lower()
         if not key:
             return None
 
@@ -84,9 +89,9 @@ class OpenFDAClient:
 
         async with _SEMAPHORE:
             events, label, recalls = await asyncio.gather(
-                self._fetch_faers_reactions(drug_name),
-                self._fetch_label_warnings(drug_name),
-                self._fetch_recalls(drug_name),
+                self._fetch_faers_reactions(normalized),
+                self._fetch_label_warnings(normalized),
+                self._fetch_recalls(normalized),
             )
 
         # If every sub-query returned None (network-level failure rather than
@@ -96,7 +101,7 @@ class OpenFDAClient:
 
         top_aes, total_reports = events or ([], 0)
         signal = DrugSafetySignal(
-            drug_name=drug_name,
+            drug_name=normalized,
             total_reports=total_reports,
             top_adverse_events=top_aes,
             boxed_warnings=label or [],
@@ -127,12 +132,16 @@ class OpenFDAClient:
         cheap — both responses are under 2 kB.
         """
         quoted = _quote(drug_name)
-        # Search both brand and generic names via boolean OR so we don't miss
-        # either match pattern. OpenFDA's Lucene-style query supports this.
+        # Search both brand and generic names. OpenFDA uses Lucene where a
+        # leading ``+`` on a clause means MUST; chaining clauses with ``+``
+        # therefore requires ALL fields to match — only true for clean INNs
+        # and explains why biologics (alirocumab, evolocumab) returned zero
+        # results. Use explicit ``OR`` instead so any one field match counts.
         search = (
-            f"(patient.drug.medicinalproduct:{quoted}+"
-            f"patient.drug.openfda.generic_name:{quoted}+"
-            f"patient.drug.openfda.brand_name:{quoted})"
+            f"patient.drug.medicinalproduct:{quoted} OR "
+            f"patient.drug.openfda.generic_name:{quoted} OR "
+            f"patient.drug.openfda.brand_name:{quoted} OR "
+            f"patient.drug.openfda.substance_name:{quoted}"
         )
         url = f"{_OPENFDA_BASE}/drug/event.json"
         count_params = {
@@ -171,7 +180,11 @@ class OpenFDAClient:
     async def _fetch_label_warnings(self, drug_name: str) -> list[str] | None:
         """Return the label's boxed warnings (list of strings) or ``None``."""
         quoted = _quote(drug_name)
-        search = f"(openfda.generic_name:{quoted}+openfda.brand_name:{quoted})"
+        search = (
+            f"openfda.generic_name:{quoted} OR "
+            f"openfda.brand_name:{quoted} OR "
+            f"openfda.substance_name:{quoted}"
+        )
         url = f"{_OPENFDA_BASE}/drug/label.json"
         params = {"search": search, "limit": 1}
 
@@ -200,7 +213,11 @@ class OpenFDAClient:
     async def _fetch_recalls(self, drug_name: str) -> list[DrugRecall] | None:
         """Return active/historical recalls for the product, or ``None``."""
         quoted = _quote(drug_name)
-        search = f"(openfda.generic_name:{quoted}+openfda.brand_name:{quoted})"
+        search = (
+            f"openfda.generic_name:{quoted} OR "
+            f"openfda.brand_name:{quoted} OR "
+            f"openfda.substance_name:{quoted}"
+        )
         url = f"{_OPENFDA_BASE}/drug/enforcement.json"
         params = {"search": search, "limit": _RECALL_LIMIT}
 
@@ -256,6 +273,71 @@ def _quote(value: str) -> str:
     """OpenFDA accepts quoted values for multi-word / cased matches."""
     cleaned = value.strip().replace('"', "")
     return f'"{cleaned}"'
+
+
+# Salt and pharmaceutical-form suffixes commonly appended by DGIdb to drug
+# names. OpenFDA's openfda.* exact-match fields index the INN / generic name
+# without these qualifiers, so a query for ``"ATORVASTATIN CALCIUM TRIHYDRATE"``
+# returns zero hits where ``"atorvastatin"`` returns thousands.
+#
+# Order matters: trailing multi-word suffixes are checked first so
+# ``CALCIUM TRIHYDRATE`` strips before the bare ``CALCIUM`` match would
+# leave a dangling ``TRIHYDRATE``.
+_SALT_SUFFIXES: tuple[str, ...] = (
+    "calcium trihydrate",
+    "sodium dihydrate",
+    "sodium phosphate",
+    "hydrogen sulfate",
+    "anhydrous",
+    "monohydrate",
+    "dihydrate",
+    "trihydrate",
+    "hydrochloride",
+    "hydrobromide",
+    "hydroxide",
+    "phosphate",
+    "succinate",
+    "fumarate",
+    "maleate",
+    "tartrate",
+    "citrate",
+    "mesylate",
+    "besylate",
+    "tosylate",
+    "acetate",
+    "lactate",
+    "sulfate",
+    "calcium",
+    "sodium",
+    "potassium",
+    "magnesium",
+)
+
+
+def _normalize_drug_name(value: str) -> str:
+    """Strip salt forms and pharmaceutical-form suffixes from a drug name.
+
+    Returns the cleaned name in its original casing. ``"FILGOTINIB MALEATE"``
+    becomes ``"FILGOTINIB"``; ``"DACOMITINIB ANHYDROUS"`` becomes
+    ``"DACOMITINIB"``. Names without a recognized suffix are passed through
+    unchanged (after whitespace normalization).
+    """
+    cleaned = " ".join(value.strip().split())
+    if not cleaned:
+        return ""
+    # Peel suffixes iteratively so compound trailing forms ("X SODIUM
+    # ANHYDROUS") collapse to the bare INN.
+    changed = True
+    while changed:
+        changed = False
+        lowered = cleaned.lower()
+        for suffix in _SALT_SUFFIXES:
+            marker = f" {suffix}"
+            if lowered.endswith(marker):
+                cleaned = cleaned[: len(cleaned) - len(marker)].rstrip()
+                changed = True
+                break
+    return cleaned
 
 
 def _load_disk_cache(path: Path) -> dict[str, dict]:

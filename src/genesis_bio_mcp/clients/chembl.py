@@ -138,7 +138,12 @@ class ChEMBLClient:
                         if a.get("assay_description")
                         else None,
                         assay_type=a.get("assay_type") or None,
-                        assay_organism=a.get("assay_organism") or None,
+                        # ChEMBL's /activity rows expose the species via
+                        # ``target_organism``; ``assay_organism`` is almost
+                        # always null. Fall back to the latter for assays where
+                        # the assay system differs from the target species
+                        # (e.g. human protein expressed in insect cells).
+                        assay_organism=a.get("target_organism") or a.get("assay_organism") or None,
                         assay_cell_type=a.get("assay_cell_type") or None,
                         bao_format=a.get("bao_label") or a.get("bao_format") or None,
                         confidence_score=conf_score,

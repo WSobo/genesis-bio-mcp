@@ -1,12 +1,20 @@
 """GTEx API client — bulk-RNA median gene expression per tissue.
 
-Wraps https://gtexportal.org/api/v2. No API key required. GTEx keys
-queries on GENCODE IDs (versioned Ensembl IDs, e.g. ``ENSG00000157764.12``),
-not HGNC symbols — so callers inject an :class:`EnsemblClient` so we can
-resolve the symbol to an Ensembl ID first. GTEx accepts unversioned IDs on
-``geneId`` too, which we use as a fallback.
+Wraps https://gtexportal.org/api/v2. No API key required.
+
+GTEx requires the **versioned** GENCODE ID on the expression endpoint
+(``ENSG00000169174.11``); the unversioned form silently returns an empty
+``data: []`` payload. The version suffix is GTEx's pinned GENCODE release
+(currently v26 = GRCh38), not the live Ensembl version, so resolving
+through Ensembl alone is unreliable across releases.
+
+We resolve through GTEx's own ``/api/v2/reference/gene`` endpoint, which
+maps an HGNC symbol to the GENCODE ID GTEx itself indexed against. The
+:class:`EnsemblClient` is kept as a secondary fallback for symbols GTEx
+doesn't know.
 
 Endpoints:
+- ``GET /api/v2/reference/gene?geneId={symbol}``                — symbol → versioned GENCODE ID
 - ``GET /api/v2/expression/medianGeneExpression?gencodeId={id}`` — median TPM per tissue
 """
 
@@ -70,22 +78,27 @@ class GTExClient:
             except Exception as exc:
                 logger.debug("GTEx disk cache entry for %s stale or malformed: %s", symbol, exc)
 
-        # Resolve HGNC → Ensembl ID via EnsemblClient. GTEx accepts the
-        # unversioned Ensembl ID on /medianGeneExpression?geneId=... though the
-        # documented param is gencodeId=<id>.<ver>; we pass the bare Ensembl
-        # ID which GTEx resolves to the current GENCODE version automatically.
-        gene = await self._ensembl.lookup_gene(symbol)
-        if gene is None:
-            logger.debug("GTEx: no Ensembl ID for %s", symbol)
+        # Resolve symbol → versioned GENCODE ID via GTEx's own reference
+        # endpoint. The version suffix (e.g. ``.11``) is mandatory on the
+        # expression endpoint; without it GTEx returns an empty data array
+        # rather than 404. Ensembl is the secondary fallback for symbols
+        # GTEx doesn't index (rare).
+        gencode_id = await self._resolve_gencode_id(symbol)
+        if gencode_id is None:
+            ensembl_gene = await self._ensembl.lookup_gene(symbol)
+            if ensembl_gene is not None:
+                gencode_id = ensembl_gene.ensembl_id
+        if gencode_id is None:
+            logger.debug("GTEx: no GENCODE ID for %s", symbol)
             empty = TissueExpressionProfile(gene_symbol=symbol, gencode_id=None)
             self._session_cache[symbol] = empty
             return empty
 
         async with _SEMAPHORE:
-            samples = await self._fetch_expression(gene.ensembl_id)
+            samples = await self._fetch_expression(gencode_id)
 
         profile = TissueExpressionProfile(
-            gene_symbol=symbol, gencode_id=gene.ensembl_id, samples=samples
+            gene_symbol=symbol, gencode_id=gencode_id, samples=samples
         )
         self._session_cache[symbol] = profile
         # Persist only successful fetches (samples non-empty) so empty rows
@@ -97,6 +110,39 @@ class GTExClient:
             }
             _save_disk_cache(self._disk_cache_path, self._disk_cache)
         return profile
+
+    async def _resolve_gencode_id(self, gene_symbol: str) -> str | None:
+        """Map an HGNC symbol to GTEx's pinned versioned GENCODE ID.
+
+        Returns ``None`` if GTEx doesn't index the symbol (common for
+        non-coding / pseudogene aliases) or on any network error.
+        """
+        url = f"{_GTEX_BASE}/reference/gene"
+        try:
+            async with _SEMAPHORE:
+                resp = await self._client.get(url, params={"geneId": gene_symbol}, timeout=20.0)
+            if resp.status_code == 404:
+                return None
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            logger.warning("GTEx /reference/gene failed for %s: %s", gene_symbol, exc)
+            return None
+        rows = data.get("data") or []
+        for row in rows:
+            # GTEx returns one row per matched symbol; prefer the entry whose
+            # primary geneSymbol matches the query exactly to avoid
+            # near-miss matches (e.g. "ALB" vs "ALB2") biting us the way the
+            # UniProt resolver did.
+            if (row.get("geneSymbol") or "").upper() == gene_symbol.strip().upper():
+                gencode = row.get("gencodeId")
+                if gencode:
+                    return str(gencode)
+        # Fallback to first row if no exact symbol match — GTEx's matching
+        # is symbol-prefix-based and usually returns the canonical entry first.
+        if rows:
+            return rows[0].get("gencodeId")
+        return None
 
     async def _fetch_expression(self, gencode_id: str) -> list[GTExExpression]:
         """Call /api/v2/expression/medianGeneExpression and parse the rows."""

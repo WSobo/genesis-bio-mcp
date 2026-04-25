@@ -118,12 +118,16 @@ class UniProtClient:
         query = f"gene_exact:{symbol} AND organism_id:9606"
         if reviewed_only:
             query += " AND reviewed:true"
-        params = {"query": query, "fields": _FIELDS, "format": "json", "size": "1"}
+        # Fetch top-5 instead of top-1: UniProt's relevance ranking does not
+        # always put the canonical match first (e.g. `gene_exact:ALB` returned
+        # FBF1 before ALB in production), so we prefer entries whose primary
+        # geneName matches the query and only fall back to the first hit when
+        # no exact match exists.
+        params = {"query": query, "fields": _FIELDS, "format": "json", "size": "5"}
         try:
             resp = await self._client.get(f"{_BASE_URL}/search", params=params)
             resp.raise_for_status()
             results = resp.json().get("results", [])
-            return results[0] if results else None
         except Exception as exc:
             logger.warning(
                 "UniProt search failed for '%s' (reviewed=%s): %s",
@@ -132,11 +136,25 @@ class UniProtClient:
                 exc,
             )
             return None
+        if not results:
+            return None
+        return _pick_exact_gene_match(results, symbol) or results[0]
 
 
 # ---------------------------------------------------------------------------
 # Parsing helpers
 # ---------------------------------------------------------------------------
+
+
+def _pick_exact_gene_match(results: list[dict], symbol: str) -> dict | None:
+    """Return the first result whose primary geneName matches *symbol*."""
+    target = symbol.strip().upper()
+    for entry in results:
+        for gene in entry.get("genes", []) or []:
+            primary = gene.get("geneName", {}).get("value", "")
+            if primary and primary.upper() == target:
+                return entry
+    return None
 
 
 def _parse_entry(entry: dict, gene_symbol: str) -> ProteinInfo:

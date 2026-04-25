@@ -3870,3 +3870,216 @@ async def test_chembl_network_error_returns_none(http_client):
     client = ChEMBLClient(http_client)
     result = await client.get_compounds("BRAF")
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# v0.3.1 regression tests — four bugs caught by the post-release smoke run
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+async def test_chembl_target_organism_is_parsed_when_assay_organism_null(http_client):
+    """Bug D: real ChEMBL responses populate ``target_organism``, not ``assay_organism``.
+
+    The activity row exposes the species via ``target_organism``; ``assay_organism``
+    is almost always null in the live API. The client must read the populated field
+    so the rendered table doesn't show empty Organism cells across the board.
+    """
+    respx.get(url__regex=r"ebi\.ac\.uk/chembl/api/data/target/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "targets": [
+                    {
+                        "target_chembl_id": "CHEMBL5145",
+                        "target_type": "SINGLE PROTEIN",
+                        "organism": "Homo sapiens",
+                    }
+                ]
+            },
+        )
+    )
+    respx.get(url__regex=r"ebi\.ac\.uk/chembl/api/data/activity").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "activities": [
+                    {
+                        "molecule_chembl_id": "CHEMBL1336",
+                        "pchembl_value": "8.5",
+                        "standard_type": "IC50",
+                        "assay_type": "B",
+                        # Live shape: target_organism populated, assay_organism null.
+                        "target_organism": "Homo sapiens",
+                        "assay_organism": None,
+                    }
+                ]
+            },
+        )
+    )
+    client = ChEMBLClient(http_client)
+    result = await client.get_compounds("BRAF")
+    assert result is not None
+    assert result.compounds[0].assay_organism == "Homo sapiens"
+
+
+def test_openfda_normalize_drug_name_strips_salt_suffixes():
+    """Bug C: DGIdb-style drug names (salt forms, hydrate suffixes) must
+    collapse to the bare INN before hitting OpenFDA."""
+    from genesis_bio_mcp.clients.openfda import _normalize_drug_name
+
+    assert _normalize_drug_name("ATORVASTATIN CALCIUM TRIHYDRATE") == "ATORVASTATIN"
+    assert _normalize_drug_name("FILGOTINIB MALEATE") == "FILGOTINIB"
+    assert _normalize_drug_name("DACOMITINIB ANHYDROUS") == "DACOMITINIB"
+    assert _normalize_drug_name("PRAVASTATIN SODIUM") == "PRAVASTATIN"
+    assert _normalize_drug_name("imatinib mesylate") == "imatinib"
+    # Already-clean INNs pass through unchanged (besides whitespace normalization).
+    assert _normalize_drug_name("evolocumab") == "evolocumab"
+    assert _normalize_drug_name("  alirocumab  ") == "alirocumab"
+    # Empty / whitespace-only input returns empty string, not raises.
+    assert _normalize_drug_name("") == ""
+    assert _normalize_drug_name("   ") == ""
+
+
+@respx.mock
+async def test_openfda_uses_or_syntax_and_normalizes_drug_name(http_client, tmp_path, monkeypatch):
+    """Bug C: query must use Lucene ``OR`` (not ``+`` which means MUST), AND
+    must run on the salt-stripped name so biologics and salt forms surface."""
+    monkeypatch.setattr(
+        "genesis_bio_mcp.config.settings.settings.openfda_cache_path",
+        tmp_path / "openfda.json",
+    )
+    monkeypatch.delenv("OPENFDA_API_KEY", raising=False)
+
+    seen_searches: list[str] = []
+
+    def _spy(request):
+        seen_searches.append(request.url.params.get("search") or "")
+        return httpx.Response(200, json={"results": [], "meta": {"results": {"total": 0}}})
+
+    respx.get(url__regex=r"api\.fda\.gov").mock(side_effect=_spy)
+    client = OpenFDAClient(http_client)
+    signal = await client.get_safety_signals("EVOLOCUMAB")
+    assert signal is not None  # empty signal, not None — proves the call ran
+
+    assert seen_searches, "expected at least one OpenFDA query"
+    # Every clause must use OR (not '+' which Lucene parses as MUST/AND).
+    # Stale '+' syntax requires ALL three fields to match — the bug that
+    # silently dropped FAERS for biologics like evolocumab.
+    for s in seen_searches:
+        assert " OR " in s, f"OpenFDA search lost OR syntax: {s}"
+        assert "+patient.drug.openfda.generic_name" not in s
+        assert "+openfda.generic_name" not in s
+
+    # Verify the normalized name (no salt suffix) was sent in the query.
+    seen_searches.clear()
+    await client.get_safety_signals("FILGOTINIB MALEATE")
+    assert seen_searches, "expected query for FILGOTINIB MALEATE"
+    for s in seen_searches:
+        assert "FILGOTINIB" in s
+        assert "MALEATE" not in s
+
+
+@respx.mock
+async def test_gtex_resolves_versioned_gencode_via_reference_endpoint(
+    http_client, tmp_path, monkeypatch
+):
+    """Bug B: GTEx requires a versioned GENCODE ID (``ENSG…11``); the
+    unversioned form returns an empty data array. Resolution must go through
+    GTEx's ``/reference/gene`` endpoint to get the version GTEx itself indexed."""
+    from genesis_bio_mcp.clients.ensembl import EnsemblClient
+    from genesis_bio_mcp.clients.gtex import GTExClient
+
+    monkeypatch.setattr(
+        "genesis_bio_mcp.config.settings.settings.gtex_cache_path",
+        tmp_path / "gtex.json",
+    )
+
+    seen_expr_params: list[str | None] = []
+
+    def _expr_handler(request):
+        seen_expr_params.append(request.url.params.get("gencodeId"))
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "tissueSiteDetailId": "Liver",
+                        "median": 12.5,
+                        "numSamples": 226,
+                        "gencodeId": "ENSG00000169174.11",
+                        "geneSymbol": "PCSK9",
+                    }
+                ]
+            },
+        )
+
+    # GTEx /reference/gene returns the versioned GENCODE ID.
+    respx.get(url__regex=r"gtexportal\.org/api/v2/reference/gene").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "geneSymbol": "PCSK9",
+                        "gencodeId": "ENSG00000169174.11",
+                    }
+                ]
+            },
+        )
+    )
+    respx.get(url__regex=r"gtexportal\.org/api/v2/expression/medianGeneExpression").mock(
+        side_effect=_expr_handler,
+    )
+
+    ensembl = EnsemblClient(http_client)
+    client = GTExClient(http_client, ensembl=ensembl)
+    profile = await client.get_expression("PCSK9")
+
+    assert profile is not None
+    assert profile.gencode_id == "ENSG00000169174.11"  # versioned, not bare
+    assert profile.samples and profile.samples[0].tissue.startswith("Liver")
+    # Crucially, the expression endpoint received the VERSIONED form.
+    assert seen_expr_params == ["ENSG00000169174.11"]
+
+
+@respx.mock
+async def test_uniprot_search_prefers_exact_gene_match_over_first_hit(http_client):
+    """Bug A: ``gene_exact:ALB`` returned FBF1 ranked first, ALB second.
+    The resolver must prefer the entry whose primary geneName matches the
+    query rather than blindly taking the first row."""
+    from genesis_bio_mcp.clients.uniprot import UniProtClient
+
+    respx.get(url__regex=r"rest\.uniprot\.org/uniprotkb/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    # First hit is the wrong gene — proves the bug shape.
+                    {
+                        "primaryAccession": "Q8TES7",
+                        "entryType": "UniProtKB reviewed (Swiss-Prot)",
+                        "genes": [{"geneName": {"value": "FBF1"}}],
+                        "proteinDescription": {
+                            "recommendedName": {"fullName": {"value": "Fas-binding factor 1"}}
+                        },
+                    },
+                    # Real ALB ranked second — must win.
+                    {
+                        "primaryAccession": "P02768",
+                        "entryType": "UniProtKB reviewed (Swiss-Prot)",
+                        "genes": [{"geneName": {"value": "ALB"}}],
+                        "proteinDescription": {
+                            "recommendedName": {"fullName": {"value": "Albumin"}}
+                        },
+                    },
+                ]
+            },
+        )
+    )
+    client = UniProtClient(http_client)
+    protein = await client.get_protein("ALB")
+    assert protein is not None
+    assert protein.uniprot_accession == "P02768"
+    assert protein.gene_symbol == "ALB"
+    assert protein.protein_name == "Albumin"

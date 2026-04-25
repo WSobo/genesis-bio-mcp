@@ -7,6 +7,54 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.3.1] — 2026-04-25
+
+Patch release. Fixes four bugs caught by the post-v0.3.0 smoke run against
+PCSK9, BRAF, EGFR, and HMGCR. All four were present in v0.3.0; none change
+the public tool surface.
+
+### Fixed
+
+- **GTEx returned empty TPM payload for every gene** — the expression
+  endpoint silently returns `data: []` when given an unversioned GENCODE
+  ID (`ENSG…`). v0.3.0 resolved through Ensembl which returns the bare ID;
+  the version suffix (e.g. `.11`) is GTEx-specific and mandatory. Resolution
+  now goes through GTEx's own `/api/v2/reference/gene` endpoint, which
+  returns the GENCODE version GTEx itself indexes against. EnsemblClient is
+  kept as a fallback for symbols GTEx doesn't know.
+- **OpenFDA safety section silently dropped for biologics + salt forms** —
+  two compounding bugs:
+  1. The Lucene query joined three `field:value` clauses with `+`, which
+     Lucene parses as **MUST** (AND), so a record had to match the drug
+     name in `medicinalproduct`, `openfda.generic_name`, *and*
+     `openfda.brand_name` simultaneously. Worked for clean INNs like
+     `fluvastatin`; failed for `alirocumab`, `evolocumab`, and TKIs whose
+     spelling varies across fields. Replaced `+` with explicit `OR` and
+     added `openfda.substance_name` as a fourth match field.
+  2. DGIdb returns drug names with salt and pharmaceutical-form suffixes
+     (`ATORVASTATIN CALCIUM TRIHYDRATE`, `DACOMITINIB ANHYDROUS`). OpenFDA's
+     `openfda.*` fields don't index these qualifiers. Added
+     `_normalize_drug_name()` which iteratively strips a list of common
+     salts, hydrates, and counterions before the lookup.
+- **UniProt resolver picked the wrong gene for some symbols** — `gene_exact:ALB`
+  returns `FBF1` ranked first in UniProt's relevance ordering; the resolver
+  blindly took `results[0]`. Fetch widened from 1 to 5 results, with a new
+  `_pick_exact_gene_match()` helper that prefers entries whose primary
+  `geneName` matches the query before falling back to first hit. Affected
+  any single-gene tool through `_resolve_symbol`.
+- **ChEMBL `assay_organism` always rendered empty** — the activity row
+  exposes the species via `target_organism` (populated); `assay_organism`
+  is almost always null in the live API. Parser now reads `target_organism`
+  first, falling back to `assay_organism` only when the assay system differs
+  from the target species (e.g. human protein expressed in insect cells).
+
+### Added
+
+- 5 regression tests in `tests/test_clients.py` — one per bug, plus a unit
+  test for `_normalize_drug_name`. **197/197 tests pass.**
+
+---
+
 ## [0.3.0] — 2026-04-22
 
 Major feature release. Closes the genomics coordinate gap, adds tissue/protein expression evidence, introduces a post-market drug-safety layer, and deepens ChEMBL assay context. Two new MCP tools (`get_variant_consequences`, `get_tissue_expression`, `get_protein_atlas`) plus meaningful depth fixes to `get_variant_effects`, `get_drug_history`, `get_chembl_compounds`, and `prioritize_target`. No breaking changes to tool names or argument shapes — all additions are additive on the response side.
